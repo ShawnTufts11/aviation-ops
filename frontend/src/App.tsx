@@ -9,6 +9,8 @@ import CrewDetailPage from '@/app/pages/CrewDetailPage'
 import MissionsPage from '@/app/pages/MissionsPage'
 import MissionBuilderPage from '@/app/pages/MissionBuilderPage'
 import MissionDetailPage from '@/app/pages/MissionDetailPage'
+import PassengersPage from '@/app/pages/PassengersPage'
+import PassengerDetailPage from '@/app/pages/PassengerDetailPage'
 import FlightsPage from '@/app/pages/FlightsPage'
 import MaintenancePage from '@/app/pages/MaintenancePage'
 import CrewPage from '@/app/pages/CrewPage'
@@ -84,6 +86,26 @@ export default function App() {
             <AuthGuard>
               <RootLayout>
                 <MissionDetailPage />
+              </RootLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/passengers"
+          element={
+            <AuthGuard>
+              <RootLayout>
+                <PassengersPage />
+              </RootLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/passengers/:id"
+          element={
+            <AuthGuard>
+              <RootLayout>
+                <PassengerDetailPage />
               </RootLayout>
             </AuthGuard>
           }

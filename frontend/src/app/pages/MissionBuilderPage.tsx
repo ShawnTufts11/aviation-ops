@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, X, ArrowLeft, Plane, MapPin, Users, FileWarning } from 'lucide-react'
+import { Plus, X, ArrowLeft, Plane, MapPin, Users, Search, FileWarning } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -20,6 +20,8 @@ export default function MissionBuilderPage() {
     { leg_number: 1, departure: 'MYNN', arrival: '', distance: '' }
   ])
   const [passengers, setPassengers] = useState<PaxForm[]>([])
+  const [paxSearch, setPaxSearch] = useState('')
+  const [paxResults, setPaxResults] = useState<any[]>([])
   const [missionId, setMissionId] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [warnings, setWarnings] = useState<string[]>([])
@@ -209,8 +211,49 @@ export default function MissionBuilderPage() {
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <Users className="h-5 w-5 text-brand-400" /> Passengers & Cargo
             </h2>
+
+            {/* Search existing passengers */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input className="pl-9" placeholder="Search existing passengers by name or passport..."
+                value={paxSearch} onChange={async (e) => {
+                  const val = e.target.value
+                  setPaxSearch(val)
+                  if (val.length < 2) { setPaxResults([]); return }
+                  try {
+                    const res = await api.get(`/api/v1/passengers/search/quick?q=${encodeURIComponent(val)}`)
+                    setPaxResults(res.data)
+                  } catch { setPaxResults([]) }
+                }} />
+              {paxResults.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-background shadow-lg">
+                  {paxResults.map((r: any) => (
+                    <button key={r.id} type="button"
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent"
+                      onClick={() => {
+                        // Check if already added
+                        if (!passengers.find(p => p.name === r.full_name)) {
+                          setPassengers([...passengers, {
+                            name: r.full_name,
+                            nationality: r.nationality || '',
+                            weight: r.weight_kg?.toString() || '',
+                          }])
+                        }
+                        setPaxSearch('')
+                        setPaxResults([])
+                      }}>
+                      <span className="font-medium">{r.full_name}</span>
+                      <span className="text-xs text-muted-foreground">{r.nationality} {r.passport_number ? `· ${r.passport_number}` : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="text-center text-xs text-muted-foreground">— or add new —</div>
+
             {passengers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No passengers added yet. You can add them later per leg.</p>
+              <p className="text-sm text-muted-foreground">No passengers added yet.</p>
             ) : (
               <div className="space-y-2">
                 {passengers.map((p, i) => (
@@ -226,7 +269,7 @@ export default function MissionBuilderPage() {
               </div>
             )}
             <Button variant="outline" size="sm" onClick={addPassenger}>
-              <Plus className="mr-2 h-4 w-4" /> Add Passenger
+              <Plus className="mr-2 h-4 w-4" /> Add Manually
             </Button>
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep(2)}>Back</Button>

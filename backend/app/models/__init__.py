@@ -11,6 +11,7 @@ from app.models.document import Document  # noqa: F401
 from app.models.notification import Notification, EmergencyAlert  # noqa: F401
 from app.models.finance import FinancialRecord  # noqa: F401
 from app.models.mission import Mission, FlightLeg, ManifestEntry, AircraftFuelProfile  # noqa: F401
+from app.models.passenger import Passenger  # noqa: F401
 
 __all__ = [
     "Organization",
