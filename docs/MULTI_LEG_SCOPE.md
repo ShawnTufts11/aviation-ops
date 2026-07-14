@@ -278,7 +278,35 @@ GET    /api/v1/missions/{id}/legs/{leg_id}/preflight — Run checks on single le
 
 ---
 
-## 9. Questions for You (Scope Gaps)
+## 9. Fuel & Aircraft Profiles
+
+### Aircraft Fuel Profile
+Each aircraft gets a configurable fuel profile:
+```
+AircraftFuelProfile {
+  cruise_burn_lph: float (liters per hour at cruise)
+  climb_burn_lph: float (higher during climb)
+  descent_burn_lph: float (lower during descent)
+  taxi_burn_lph: float
+  reserve_minutes: int (default: 45 min FAR 135 reserve)
+  alternate_burn_lph: float (burn to alternate + reserve)
+}
+```
+- Default profiles created per aircraft type during seed
+- User can override per-mission based on current aircraft state or desired profile
+- Fuel calculation: `leg_distance_nm / cruise_speed_kt × cruise_burn_lph + reserves`
+
+### Manual Override
+- Mission planner can enter custom fuel amount per leg
+- System compares: fuel_on_board vs fuel_required
+- Warning if fuel_on_board < fuel_required
+
+## 10. NOTAMs (Phase 1 — Manual)
+- Text field per leg for known NOTAMs
+- Pilot/planner enters NOTAMs they've checked
+- Phase 2: Automated NOTAM retrieval
+
+## 11. Questions for You (Scope Gaps)
 
 Before I start building, I need to nail down:
 
