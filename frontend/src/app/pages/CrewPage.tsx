@@ -128,7 +128,11 @@ export default function CrewPage() {
             const roleColor = ROLE_COLORS[c.role] || 'bg-muted text-muted-foreground'
             const isMedicalExpiring = c.medical_expiry && new Date(c.medical_expiry) < new Date(Date.now() + 30*86400000)
             return (
-              <Card key={c.id} className="border-border/50">
+              <Card
+                key={c.id}
+                className="cursor-pointer border-border/50 transition-colors hover:border-brand-500/50 hover:bg-brand-500/5"
+                onClick={() => window.location.href = `/crew/${c.id}`}
+              >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div>

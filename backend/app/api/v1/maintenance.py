@@ -131,7 +131,8 @@ async def create_maintenance(
     current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN, Role.MECHANIC])),
     db: AsyncSession = Depends(get_db),
 ) -> MaintenanceResponse:
-    """Create a new maintenance task for an aircraft."""
+    """Create a new maintenance task for an aircraft.
+    """
     await _get_aircraft_in_org(body.aircraft_id, current_user.organization_id, db)
 
     task = MaintenanceTask(
@@ -183,7 +184,7 @@ async def get_maintenance(
 async def update_maintenance(
     task_id: str,
     body: MaintenanceUpdate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN, Role.MECHANIC])),
+    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.MECHANIC])),
     db: AsyncSession = Depends(get_db),
 ) -> MaintenanceResponse:
     """Update a maintenance task (status, completion, notes)."""
