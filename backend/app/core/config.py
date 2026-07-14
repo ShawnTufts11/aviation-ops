@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     MFA_ENCRYPTION_KEY: str = "change-me-mfa-encryption-key-32chr!"
 
+    # ── Onboarding / Invite ─────────────────────────────────────────────────
+    INVITE_BOOTSTRAP_CODE: str = "PARARIG-ADMIN-2026"
+    """One-time bootstrap code for creating the very first admin account."""
+
     # ── CORS ──────────────────────────────────────────────────────────────
     CORS_ORIGINS: List[str] = ["*"]
 

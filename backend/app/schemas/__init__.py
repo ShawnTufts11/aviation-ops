@@ -33,6 +33,8 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=8)
     display_name: str = Field(..., min_length=1, max_length=255)
     phone: Optional[str] = None
+    invite_code: Optional[str] = Field(None,
+        description="Required for registration. Get one from your admin.")
 
 
 class RegisterResponse(BaseModel):

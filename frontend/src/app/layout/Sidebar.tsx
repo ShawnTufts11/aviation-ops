@@ -36,7 +36,7 @@ const navItems: NavItem[] = [
   { label: 'Compliance', path: '/compliance', icon: <ShieldCheck className="h-5 w-5" /> },
   { label: 'Finance', path: '/finance', icon: <Wallet className="h-5 w-5" /> },
   { label: 'User Permissions', path: '/admin/users', icon: <Shield className="h-5 w-5" /> },
-  { label: 'Settings', path: '/settings', icon: <Settings className="h-5 w-5" /> },
+  { label: 'Admin Panel', path: '/admin', icon: <Settings className="h-5 w-5" /> },
 ]
 
 interface SidebarProps {

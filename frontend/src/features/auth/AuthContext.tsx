@@ -15,6 +15,7 @@ interface AuthContextValue {
     email: string
     password: string
     displayName: string
+    inviteCode?: string
   }) => Promise<void>
   logout: () => void
 }

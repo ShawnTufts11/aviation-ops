@@ -18,16 +18,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_db, get_optional_user
 from app.core.permissions import require_role
 from app.core.roles import Role
+from app.core.config import settings
 from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
     generate_invite_token,
-    generate_mfa_secret,
-    hash_password,
     verify_invite_token,
-    verify_mfa_totp,
+    hash_password,
     verify_password,
+    generate_mfa_secret,
+    verify_mfa_totp,
 )
 from app.models.organization import Organization
 from app.models.user import User
@@ -82,18 +83,50 @@ async def register(
     body: RegisterRequest,
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
-    """Create a new organization with the registering user as super_admin."""
-    # Check slug availability
-    existing = await db.execute(
-        select(Organization).where(Organization.slug == body.org_slug)
-    )
-    if existing.scalar_one_or_none():
+    """Register with an invite code. Creates a new organization (for client onboarding) or joins existing one.
+
+    Requires an invite_code. The bootstrap code (from env var) bypasses
+    all checks for the very first admin account.
+    """
+    from app.models.invite import InviteCode
+
+    org_to_join: Organization | None = None
+    is_bootstrap = body.invite_code == settings.INVITE_BOOTSTRAP_CODE
+
+    if not body.invite_code and not is_bootstrap:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Organization slug already taken",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An invite code is required to register",
         )
 
-    # Check email availability
+    if not is_bootstrap:
+        # Validate invite code
+        result = await db.execute(
+            select(InviteCode).where(
+                InviteCode.code == body.invite_code,
+                InviteCode.is_used == False,
+                InviteCode.expires_at > datetime.now(timezone.utc),
+            )
+        )
+        code = result.scalar_one_or_none()
+        if not code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired invite code",
+            )
+
+        # If code has an org_id, user is joining an existing org
+        if code.organization_id:
+            org_to_join = await db.get(Organization, code.organization_id)
+            if not org_to_join or not org_to_join.is_active:
+                raise HTTPException(status_code=400, detail="Organization not found or inactive")
+
+        # Mark code as used
+        code.is_used = True
+        code.used_at = datetime.now(timezone.utc)
+        db.add(code)
+
+    # Check email
     existing_user = await db.execute(
         select(User).where(User.email == body.email)
     )
@@ -103,37 +136,60 @@ async def register(
             detail="Email already registered",
         )
 
-    # Create organization
-    org = Organization(
-        id=str(uuid.uuid4()),
-        name=body.org_name,
-        slug=body.org_slug,
-        timezone="America/Nassau",
-        currency="USD",
-        country="BS",
-        regs=["FAR-135"],
-        is_active=True,
-        settings={},
-    )
-    db.add(org)
-    await db.flush()
+    if org_to_join:
+        # Joining existing org — create user with the role from invite code
+        user = User(
+            id=str(uuid.uuid4()),
+            organization_id=org_to_join.id,
+            email=body.email,
+            password_hash=hash_password(body.password),
+            display_name=body.display_name,
+            phone=body.phone,
+            role=code.role,
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        org = org_to_join
+    else:
+        # Creating new org (bootstrap or new-client invite code)
+        existing = await db.execute(
+            select(Organization).where(Organization.slug == body.org_slug)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Organization slug already taken",
+            )
 
-    # Create super_admin user
-    user = User(
-        id=str(uuid.uuid4()),
-        organization_id=org.id,
-        email=body.email,
-        password_hash=hash_password(body.password),
-        display_name=body.display_name,
-        phone=body.phone,
-        role="super_admin",
-        is_active=True,
-        mfa_enabled=False,
-    )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    await db.refresh(org)
+        org = Organization(
+            id=str(uuid.uuid4()),
+            name=body.org_name,
+            slug=body.org_slug,
+            timezone="America/Nassau",
+            currency="USD",
+            country="BS",
+            regs=["FAR-135"],
+            is_active=True,
+            settings={},
+        )
+        db.add(org)
+        await db.flush()
+
+        user = User(
+            id=str(uuid.uuid4()),
+            organization_id=org.id,
+            email=body.email,
+            password_hash=hash_password(body.password),
+            display_name=body.display_name,
+            phone=body.phone,
+            role="super_admin",
+            is_active=True,
+            mfa_enabled=False,
+        )
+        db.add(user)
+        await db.flush()
 
     tokens = _create_tokens(user, org)
 

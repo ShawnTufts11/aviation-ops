@@ -69,6 +69,7 @@ export function useAuth(): AuthContext {
       email: string
       password: string
       displayName: string
+      inviteCode?: string
     }) => {
       const res = await api.post<RegisterResponse>('/api/v1/auth/register', {
         org_name: opts.orgName,
@@ -76,6 +77,7 @@ export function useAuth(): AuthContext {
         email: opts.email,
         password: opts.password,
         display_name: opts.displayName,
+        invite_code: opts.inviteCode || undefined,
       })
       const { access_token, user: u, organization: org } = res.data
       localStorage.setItem('pararig_token', access_token)
