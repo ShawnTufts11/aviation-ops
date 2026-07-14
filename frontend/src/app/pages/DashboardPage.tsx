@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Link } from 'react-router-dom'
 import api from '@/lib/api'
+import LiveTrackingMap from '@/features/tracking/LiveTrackingMap'
 
 interface Aircraft {
   id: string; tail_number: string; make: string; model: string; status: string; base: string
@@ -228,6 +229,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Live Tracking Map */}
+      <LiveTrackingMap />
 
       {/* Fleet status */}
       <Card>

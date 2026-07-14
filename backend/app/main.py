@@ -36,6 +36,7 @@ def _build_v1_router() -> FastAPI:
     from app.api.v1 import compliance
     from app.api.v1 import comms
     from app.api.v1 import finance
+    from app.api.v1 import tracking
 
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(auth.router)
@@ -48,6 +49,7 @@ def _build_v1_router() -> FastAPI:
     api_v1.include_router(compliance.router)
     api_v1.include_router(comms.router)
     api_v1.include_router(finance.router)
+    api_v1.include_router(tracking.router)
     return api_v1
 
 
