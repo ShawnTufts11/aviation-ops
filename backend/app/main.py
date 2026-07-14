@@ -44,6 +44,9 @@ def _build_v1_router() -> FastAPI:
     from app.api.v1 import org_settings
     from app.api.v1 import admin
     from app.api.v1 import bulk_import
+    from app.api.v1 import export
+    from app.api.v1 import logbook
+    from app.api.v1 import reports
 
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(auth.router)
@@ -64,6 +67,9 @@ def _build_v1_router() -> FastAPI:
     api_v1.include_router(org_settings.router)
     api_v1.include_router(admin.router)
     api_v1.include_router(bulk_import.router)
+    api_v1.include_router(export.router)
+    api_v1.include_router(logbook.router)
+    api_v1.include_router(reports.router)
     return api_v1
 
 

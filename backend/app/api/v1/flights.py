@@ -238,6 +238,49 @@ async def update_flight(
             )
             db.add(cost)
 
+    # Auto-create logbook entries for PIC and SIC
+    if flight.status == FlightStatus.COMPLETED and old_status != FlightStatus.COMPLETED:
+        from app.models.logbook import PilotLogEntry
+        from app.models.crew import CrewMember
+        is_cross_country = flight.departure_airport[:2] != flight.arrival_airport[:2]
+        for crew_field, is_pic in [("pilot_in_command", True), ("second_in_command", False)]:
+            crew_id = getattr(flight, crew_field, None)
+            if not crew_id:
+                continue
+            crew = await db.get(CrewMember, crew_id)
+            if not crew:
+                continue
+            existing = await db.execute(
+                select(PilotLogEntry).where(
+                    PilotLogEntry.flight_id == flight.id,
+                    PilotLogEntry.crew_id == crew_id,
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue  # Already logged
+            entry = PilotLogEntry(
+                id=str(uuid.uuid4()),
+                organization_id=current_user.organization_id,
+                crew_id=crew_id,
+                flight_id=flight.id,
+                aircraft_id=flight.aircraft_id,
+                flight_date=flight.actual_departure.date() if flight.actual_departure else date.today(),
+                departure_airport=flight.departure_airport,
+                arrival_airport=flight.arrival_airport,
+                aircraft_tail="",
+                aircraft_type="",
+                flight_time_hours=flight.flight_time_hours or 0,
+                pic=is_pic,
+                sic=not is_pic,
+                cross_country=is_cross_country,
+            )
+            # Get tail number and type
+            ac = await db.get(Aircraft, flight.aircraft_id) if flight.aircraft_id else None
+            if ac:
+                entry.aircraft_tail = ac.tail_number
+                entry.aircraft_type = f"{ac.make} {ac.model}"
+            db.add(entry)
+
     flight.updated_at = datetime.now(timezone.utc)
     db.add(flight)
     await db.commit()
