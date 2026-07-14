@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
+import HelpdeskPanel from '@/features/helpdesk/HelpdeskPanel'
 
 interface RootLayoutProps {
   children: ReactNode
@@ -38,6 +39,9 @@ export default function RootLayout({ children }: RootLayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* Floating AI Help Desk */}
+      <HelpdeskPanel />
     </div>
   )
 }

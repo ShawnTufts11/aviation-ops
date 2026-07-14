@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Plane, Users, Wrench, Wallet, TrendingUp, Calendar } from 'lucide-react'
+import OnboardingWizard from '@/features/onboarding/OnboardingWizard'
 
 const stats = [
   {
@@ -43,6 +44,7 @@ const stats = [
 export default function DashboardPage() {
   return (
     <div className="space-y-6">
+      <OnboardingWizard />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">

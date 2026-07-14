@@ -27,9 +27,13 @@ def _build_v1_router() -> FastAPI:
     from fastapi import APIRouter
 
     from app.api.v1 import auth
+    from app.api.v1 import onboarding
+    from app.api.v1 import helpdesk
 
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(auth.router)
+    api_v1.include_router(onboarding.router)
+    api_v1.include_router(helpdesk.router)
     return api_v1
 
 
