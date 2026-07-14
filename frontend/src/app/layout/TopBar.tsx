@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Bell, Menu, AlertTriangle } from 'lucide-react'
+import { Bell, Menu, AlertTriangle, Clock, LogOut } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,18 +11,49 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/features/auth/AuthContext'
+import { useNavigate } from 'react-router-dom'
 import api from '@/lib/api'
 
 interface TopBarProps {
   onMenuClick: () => void
 }
 
+function getSessionRemaining(): number {
+  try {
+    const stored = localStorage.getItem('auth_tokens')
+    if (!stored) return 0
+    const tokens = JSON.parse(stored)
+    const payload = JSON.parse(atob(tokens.access_token.split('.')[1]))
+    const exp = payload.exp * 1000
+    return Math.max(0, exp - Date.now())
+  } catch {
+    return 0
+  }
+}
+
+function formatTime(ms: number): string {
+  if (ms <= 0) return 'Expired'
+  const h = Math.floor(ms / 3600000)
+  const m = Math.floor((ms % 3600000) / 60000)
+  const s = Math.floor((ms % 60000) / 1000)
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
 export default function TopBar({ onMenuClick }: TopBarProps) {
   const { user, logout } = useAuthContext()
+  const navigate = useNavigate()
   const [unread, setUnread] = useState(0)
   const [notifications, setNotifications] = useState<any[]>([])
   const [showNotifs, setShowNotifs] = useState(false)
+  const [sessionTime, setSessionTime] = useState(getSessionRemaining())
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Session countdown tick
+  useEffect(() => {
+    const tick = setInterval(() => setSessionTime(getSessionRemaining()), 1000)
+    return () => clearInterval(tick)
+  }, [])
 
   const fetchNotifs = async () => {
     try {
@@ -58,6 +89,13 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
       <Button variant="ghost" size="icon" className="md:hidden" onClick={onMenuClick}>
         <Menu className="h-5 w-5" />
       </Button>
+
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Clock className="h-3.5 w-3.5" />
+        <span className={sessionTime < 300000 ? 'text-amber-500' : ''}>
+          {formatTime(sessionTime)}
+        </span>
+      </div>
 
       <div className="flex-1" />
 
@@ -120,18 +158,22 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
             <span className="hidden text-sm font-medium md:inline-block">{user?.display_name || 'User'}</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-56" align="end" sideOffset={8}>
+        <DropdownMenuContent className="w-64" align="end" sideOffset={8}>
           <DropdownMenuLabel>
             <div className="flex flex-col gap-1">
               <p className="text-sm font-medium">{user?.display_name || 'User'}</p>
               <p className="text-xs text-muted-foreground">{user?.email || ''}</p>
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                Session: {formatTime(sessionTime)}
+              </p>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Profile</DropdownMenuItem>
-          <DropdownMenuItem>Settings</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate('/settings')}>Settings</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={logout}>
+          <DropdownMenuItem className="flex items-center gap-2 text-destructive focus:text-destructive" onClick={logout}>
+            <LogOut className="h-4 w-4" />
             Log out
           </DropdownMenuItem>
         </DropdownMenuContent>
