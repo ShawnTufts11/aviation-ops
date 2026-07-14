@@ -6,6 +6,9 @@ import DashboardPage from '@/app/pages/DashboardPage'
 import FleetPage from '@/app/pages/FleetPage'
 import AircraftDetailPage from '@/app/pages/AircraftDetailPage'
 import CrewDetailPage from '@/app/pages/CrewDetailPage'
+import MissionsPage from '@/app/pages/MissionsPage'
+import MissionBuilderPage from '@/app/pages/MissionBuilderPage'
+import MissionDetailPage from '@/app/pages/MissionDetailPage'
 import FlightsPage from '@/app/pages/FlightsPage'
 import MaintenancePage from '@/app/pages/MaintenancePage'
 import CrewPage from '@/app/pages/CrewPage'
@@ -51,6 +54,36 @@ export default function App() {
             <AuthGuard>
               <RootLayout>
                 <AircraftDetailPage />
+              </RootLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/missions"
+          element={
+            <AuthGuard>
+              <RootLayout>
+                <MissionsPage />
+              </RootLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/missions/new"
+          element={
+            <AuthGuard>
+              <RootLayout>
+                <MissionBuilderPage />
+              </RootLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/missions/:id"
+          element={
+            <AuthGuard>
+              <RootLayout>
+                <MissionDetailPage />
               </RootLayout>
             </AuthGuard>
           }

@@ -5,6 +5,7 @@ import { Separator } from '@/components/ui/separator'
 import {
   LayoutDashboard,
   Plane,
+  MapPin,
   History,
   Wrench,
   Users,
@@ -25,6 +26,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <LayoutDashboard className="h-5 w-5" /> },
   { label: 'Fleet', path: '/fleet', icon: <Plane className="h-5 w-5" /> },
+  { label: 'Missions', path: '/missions', icon: <MapPin className="h-5 w-5" /> },
   { label: 'Flights', path: '/flights', icon: <History className="h-5 w-5" /> },
   { label: 'Maintenance', path: '/maintenance', icon: <Wrench className="h-5 w-5" /> },
   { label: 'Crew', path: '/crew', icon: <Users className="h-5 w-5" /> },
