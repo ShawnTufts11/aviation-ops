@@ -11,7 +11,7 @@ from sqlalchemy import select, desc, or_, func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
-from app.core.permissions import require_org_membership, require_role
+from app.core.permissions import require_org_membership, require_role, require_pii_clearance, has_pii_clearance
 from app.core.roles import Role
 from app.models.passenger import Passenger
 from app.models.user import User
@@ -47,8 +47,23 @@ async def list_passengers(
     query = query.offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(query)
 
+    def _redact(p: Passenger) -> dict:
+        """Strip PII for users without clearance."""
+        d = PassengerResponse.model_validate(p).model_dump()
+        if not has_pii_clearance(current_user):
+            d["passport_number"] = "****"
+            d["passport_expiry"] = None
+            d["ssn"] = None
+            d["id_number"] = "****"
+            d["email"] = None
+            d["phone"] = None
+            d["date_of_birth"] = None
+            d["gender"] = None
+            d["notes"] = None
+        return d
+
     return {
-        "data": [PassengerResponse.model_validate(p) for p in result.scalars().all()],
+        "data": [_redact(p) for p in result.scalars().all()],
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -58,7 +73,7 @@ async def list_passengers(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_passenger(
     body: PassengerCreate,
-    current_user: User = Depends(require_org_membership),
+    current_user: User = Depends(require_pii_clearance()),
     db: AsyncSession = Depends(get_db),
 ) -> PassengerResponse:
     """Add a new passenger profile. Enforces unique passport/SSN."""
@@ -104,7 +119,7 @@ async def create_passenger(
 @router.get("/{passenger_id}")
 async def get_passenger(
     passenger_id: str,
-    current_user: User = Depends(require_org_membership),
+    current_user: User = Depends(require_pii_clearance()),
     db: AsyncSession = Depends(get_db),
 ) -> PassengerResponse:
     """Get a single passenger profile."""
@@ -118,7 +133,7 @@ async def get_passenger(
 async def update_passenger(
     passenger_id: str,
     body: PassengerUpdate,
-    current_user: User = Depends(require_org_membership),
+    current_user: User = Depends(require_pii_clearance()),
     db: AsyncSession = Depends(get_db),
 ) -> PassengerResponse:
     """Update a passenger profile."""
@@ -170,7 +185,7 @@ async def quick_search(
     q: str = Query(..., min_length=1),
     current_user: User = Depends(require_org_membership),
     db: AsyncSession = Depends(get_db),
-) -> list[PassengerResponse]:
+) -> list[dict[str, Any]]:
     """Quick search for auto-complete dropdowns (mission builder)."""
     like = f"%{q}%"
     result = await db.execute(
@@ -182,4 +197,13 @@ async def quick_search(
             ),
         ).order_by(Passenger.full_name.asc()).limit(10)
     )
-    return [PassengerResponse.model_validate(p) for p in result.scalars().all()]
+    return [
+        {
+            "id": p.id,
+            "full_name": p.full_name,
+            "nationality": p.nationality,
+            "passport_number": p.passport_number[:4] + "****" if p.passport_number else None,
+            "weight_kg": p.weight_kg,
+        }
+        for p in result.scalars().all()
+    ]

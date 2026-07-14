@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
 from app.core.audit import log_action
-from app.core.permissions import require_org_membership, require_role
+from app.core.permissions import require_org_membership, require_role, require_pii_clearance
 from app.core.roles import Role
 from app.models.crew import CrewMember, CrewQualification
 from app.models.user import User
@@ -123,7 +123,7 @@ async def create_crew(
 @router.get("/{crew_id}")
 async def get_crew(
     crew_id: str,
-    current_user: User = Depends(require_org_membership),
+    current_user: User = Depends(require_pii_clearance()),
     db: AsyncSession = Depends(get_db),
 ) -> CrewResponse:
     """Get crew member with qualifications."""
