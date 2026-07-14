@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { PlaneTakeoff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -6,20 +6,50 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuthContext } from '@/features/auth/AuthContext'
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100)
+}
+
 export default function RegisterPage() {
   const [orgName, setOrgName] = useState('')
+  const [orgSlug, setOrgSlug] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { register } = useAuthContext()
   const navigate = useNavigate()
 
+  const handleOrgNameChange = useCallback(
+    (value: string) => {
+      setOrgName(value)
+      if (!slugManuallyEdited) {
+        setOrgSlug(slugify(value))
+      }
+    },
+    [slugManuallyEdited],
+  )
+
+  const handleSlugChange = useCallback((value: string) => {
+    setSlugManuallyEdited(true)
+    setOrgSlug(slugify(value))
+  }, [])
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
 
+    if (!orgSlug) {
+      setError('Organization slug is required')
+      return
+    }
     if (password !== confirm) {
       setError('Passwords do not match')
       return
@@ -31,7 +61,7 @@ export default function RegisterPage() {
 
     setLoading(true)
     try {
-      await register(orgName, email, password)
+      await register({ orgName, orgSlug, email, password, displayName })
       navigate('/', { replace: true })
     } catch (err: unknown) {
       const msg =
@@ -50,9 +80,9 @@ export default function RegisterPage() {
             <PlaneTakeoff className="h-8 w-8 text-brand-400" />
             <span className="text-2xl font-bold">ParaRig Ops</span>
           </div>
-          <CardTitle className="text-xl">Create an account</CardTitle>
+          <CardTitle className="text-xl">Create your organization</CardTitle>
           <CardDescription>
-            Register your aviation organization
+            Set up your aviation operations account
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -62,6 +92,7 @@ export default function RegisterPage() {
                 {error}
               </div>
             )}
+
             <div className="space-y-2">
               <label
                 htmlFor="orgName"
@@ -74,10 +105,48 @@ export default function RegisterPage() {
                 type="text"
                 placeholder="ParaRig Dynamics"
                 value={orgName}
-                onChange={(e) => setOrgName(e.target.value)}
+                onChange={(e) => handleOrgNameChange(e.target.value)}
                 required
               />
             </div>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="orgSlug"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                URL Slug
+              </label>
+              <Input
+                id="orgSlug"
+                type="text"
+                placeholder="pararig-dynamics"
+                value={orgSlug}
+                onChange={(e) => handleSlugChange(e.target.value)}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                Auto-generated from organization name. Edit to customize.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="displayName"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Your Name
+              </label>
+              <Input
+                id="displayName"
+                type="text"
+                placeholder="Shawn"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                required
+              />
+            </div>
+
             <div className="space-y-2">
               <label
                 htmlFor="email"
@@ -95,6 +164,7 @@ export default function RegisterPage() {
                 autoComplete="email"
               />
             </div>
+
             <div className="space-y-2">
               <label
                 htmlFor="password"
@@ -112,6 +182,7 @@ export default function RegisterPage() {
                 autoComplete="new-password"
               />
             </div>
+
             <div className="space-y-2">
               <label
                 htmlFor="confirm"
@@ -129,10 +200,12 @@ export default function RegisterPage() {
                 autoComplete="new-password"
               />
             </div>
+
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Creating account…' : 'Create account'}
+              {loading ? 'Creating account…' : 'Create organization'}
             </Button>
           </form>
+
           <div className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{' '}
             <Link to="/login" className="text-brand-400 hover:underline">

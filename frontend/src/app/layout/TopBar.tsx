@@ -18,10 +18,10 @@ interface TopBarProps {
 export default function TopBar({ onMenuClick }: TopBarProps) {
   const { user, logout } = useAuthContext()
 
-  const initials = user?.name
-    ? user.name
+  const initials = user?.display_name
+    ? user.display_name
         .split(' ')
-        .map((n) => n[0])
+        .map((n: string) => n[0])
         .join('')
         .toUpperCase()
         .slice(0, 2)
@@ -61,14 +61,14 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
               </AvatarFallback>
             </Avatar>
             <span className="hidden text-sm font-medium md:inline-block">
-              {user?.name || 'User'}
+              {user?.display_name || 'User'}
             </span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56" align="end" sideOffset={8}>
           <DropdownMenuLabel>
             <div className="flex flex-col gap-1">
-              <p className="text-sm font-medium">{user?.name || 'User'}</p>
+              <p className="text-sm font-medium">{user?.display_name || 'User'}</p>
               <p className="text-xs text-muted-foreground">
                 {user?.email || ''}
               </p>

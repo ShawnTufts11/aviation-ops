@@ -1,41 +1,41 @@
 export interface User {
   id: string
   email: string
-  name: string
-  role: 'admin' | 'ops_manager' | 'pilot' | 'maintenance' | 'crew' | 'viewer'
-  avatar_url?: string
-  organization_id: string
+  display_name: string
+  phone: string | null
+  role: 'super_admin' | 'ops_manager' | 'admin' | 'pilot' | 'mechanic' | 'readonly'
+  is_active: boolean
+  mfa_enabled: boolean
   created_at: string
-  updated_at: string
 }
 
 export interface Organization {
   id: string
   name: string
-  icao_code?: string
-  iata_code?: string
-  callsign?: string
-  logo_url?: string
+  slug: string
+  logo_url: string | null
   timezone: string
+  currency: string
+  country: string
+  regs: string[]
+  is_active: boolean
   created_at: string
-  updated_at: string
 }
 
 export interface Aircraft {
   id: string
-  registration: string
-  type: string
+  tail_number: string
+  make: string
   model: string
   year: number
-  serial_number: string
-  status: 'active' | 'maintenance' | 'grounded' | 'retired'
-  cycle_count: number
-  airframe_hours: number
-  last_inspection: string
-  next_inspection: string
-  organization_id: string
+  category: string
+  status: string
+  base: string
+  home_airport: string
+  current_cycles: number | null
+  current_hours: number | null
+  registration_expiry: string | null
   created_at: string
-  updated_at: string
 }
 
 export interface Flight {
@@ -46,16 +46,12 @@ export interface Flight {
   destination: string
   departure_time: string
   arrival_time: string
-  status: 'scheduled' | 'boarding' | 'departed' | 'en_route' | 'arrived' | 'cancelled' | 'delayed'
-  pilot_id: string
-  crew_ids: string[]
-  passenger_count: number
+  status: string
+  pilot_in_command?: string
+  passenger_count?: number
   cargo_weight_kg?: number
-  fuel_gal?: number
   notes?: string
   organization_id: string
-  created_at: string
-  updated_at: string
 }
 
 export interface AuthState {
@@ -63,4 +59,19 @@ export interface AuthState {
   token: string | null
   isAuthenticated: boolean
   isLoading: boolean
+}
+
+export interface LoginResponse {
+  access_token: string
+  refresh_token: string
+  token_type: string
+  user: User
+}
+
+export interface RegisterResponse {
+  access_token: string
+  refresh_token: string
+  token_type: string
+  organization: Organization
+  user: User
 }
