@@ -186,6 +186,7 @@ export default function MaintenancePage() {
           <TabsTrigger value="overdue" className={overdueCount > 0 ? 'text-red-500' : ''}>
             Overdue ({overdueCount})
           </TabsTrigger>
+          <TabsTrigger value="schedule">Schedule</TabsTrigger>
           <TabsTrigger value="completed">Completed</TabsTrigger>
         </TabsList>
 
@@ -239,6 +240,57 @@ export default function MaintenancePage() {
                   </Card>
                 )
               })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Schedule timeline */}
+        <TabsContent value="schedule" className="mt-4">
+          {loading ? (
+            <div className="h-32 animate-pulse rounded bg-muted" />
+          ) : (
+            <div className="space-y-6">
+              {(() => {
+                // Group tasks by month
+                const months: Record<string, any[]> = {}
+                const upcoming = tasks.filter(t => t.status !== 'completed' && t.scheduled_date)
+                upcoming.sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''))
+                upcoming.forEach(t => {
+                  if (!t.scheduled_date) return
+                  const monthKey = t.scheduled_date.slice(0, 7) // "2026-08"
+                  if (!months[monthKey]) months[monthKey] = []
+                  months[monthKey].push(t)
+                })
+
+                return Object.entries(months).map(([month, monthTasks]) => {
+                  const d = new Date(month + '-01')
+                  const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                  return (
+                    <div key={month}>
+                      <h3 className="mb-3 text-sm font-semibold text-foreground">{label} ({monthTasks.length} tasks)</h3>
+                      <div className="space-y-2">
+                        {monthTasks.map((t: any) => {
+                          const tail = aircraft.find((a: any) => a.id === t.aircraft_id)?.tail_number || '—'
+                          return (
+                            <div key={t.id} className="flex items-center gap-3 rounded-md border border-border/50 p-3 text-sm">
+                              <div className={`h-2 w-2 shrink-0 rounded-full ${
+                                t.status === 'overdue' ? 'bg-red-500' :
+                                t.status === 'in_progress' ? 'bg-amber-500' : 'bg-blue-500'
+                              }`} />
+                              <span className="w-20 shrink-0 font-mono text-xs text-muted-foreground">{tail}</span>
+                              <span className="flex-1">{t.title}</span>
+                              <span className="text-xs text-muted-foreground">{t.scheduled_date}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+              {tasks.filter(t => t.status !== 'completed' && t.scheduled_date).length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">No scheduled maintenance coming up</p>
+              )}
             </div>
           )}
         </TabsContent>
