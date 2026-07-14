@@ -64,6 +64,7 @@ def _create_tokens(user: User, org: Organization) -> dict[str, str]:
     token_data = {
         "sub": user.id,
         "org_id": user.organization_id,
+        "org_slug": org.slug,
         "role": user.role,
         "email": user.email,
     }

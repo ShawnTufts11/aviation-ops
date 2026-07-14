@@ -20,6 +20,7 @@ import CompliancePage from '@/app/pages/CompliancePage'
 import FinancePage from '@/app/pages/FinancePage'
 import LoginPage from '@/app/pages/LoginPage'
 import RegisterPage from '@/app/pages/RegisterPage'
+import AcceptInvitePage from '@/app/pages/AcceptInvitePage'
 import NotFoundPage from '@/app/pages/NotFoundPage'
 
 export default function App() {
@@ -201,6 +202,8 @@ export default function App() {
             </AuthGuard>
           }
         />
+
+        <Route path="/accept-invite" element={<AcceptInvitePage />} />
 
         {/* 404 */}
         <Route path="*" element={<NotFoundPage />} />

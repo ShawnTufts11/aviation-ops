@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
-import { ShieldCheck, ShieldOff, Search } from 'lucide-react'
+import { ShieldCheck, ShieldOff, Search, UserPlus, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog'
 import api from '@/lib/api'
 
 interface User {
@@ -25,6 +28,11 @@ export default function UsersAdminPage() {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [showInvite, setShowInvite] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState('pilot')
+  const [inviteToken, setInviteToken] = useState('')
+  const [copied, setCopied] = useState(false)
 
   const fetchUsers = async () => {
     try {
@@ -43,15 +51,36 @@ export default function UsersAdminPage() {
     } catch { /* silent */ }
   }
 
+  const handleInvite = async () => {
+    try {
+      const res = await api.post('/api/v1/auth/invite', { email: inviteEmail, role: inviteRole })
+      setInviteToken(res.data.invite_token)
+    } catch { /* silent */ }
+  }
+
+  const handleCopy = () => {
+    const baseUrl = window.location.origin
+    const link = `${baseUrl}/accept-invite?token=${inviteToken}`
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   const filtered = search
     ? users.filter(u => u.display_name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()))
     : users
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">User Permissions</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{users.length} users · Manage PII clearance</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">User Permissions</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{users.length} users · Manage PII clearance</p>
+        </div>
+        <Button onClick={() => { setInviteEmail(''); setInviteRole('pilot'); setInviteToken(''); setShowInvite(true) }}>
+          <UserPlus className="mr-2 h-4 w-4" /> Invite User
+        </Button>
       </div>
 
       <div className="relative">
@@ -95,6 +124,61 @@ export default function UsersAdminPage() {
           ))}
         </div>
       )}
+
+      {/* Invite Dialog */}
+      <Dialog open={showInvite} onOpenChange={(open) => { setShowInvite(open); if (!open) setInviteToken('') }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invite User</DialogTitle>
+            <DialogDescription>
+              Send an invite link to a pilot, dispatcher, or mechanic. They'll create their own account and join your organization.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!inviteToken ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Email</label>
+                <Input type="email" placeholder="pilot@example.com" value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Role</label>
+                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
+                  <option value="pilot">Pilot</option>
+                  <option value="dispatcher">Dispatcher</option>
+                  <option value="mechanic">Mechanic</option>
+                  <option value="ops_manager">Ops Manager</option>
+                  <option value="admin">Admin</option>
+                  <option value="readonly">Read Only</option>
+                </select>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={handleInvite} disabled={!inviteEmail}>Generate Invite</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-green-500">Invite created! Copy this link and send it to the user:</p>
+              <div className="flex items-center gap-2 rounded-md border border-border bg-muted p-2">
+                <code className="flex-1 truncate text-xs">
+                  {window.location.origin}/accept-invite?token={inviteToken.slice(0, 20)}...
+                </code>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={handleCopy}>
+                  {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Token expires in 48 hours. The user will join your organization with the role you selected.
+              </p>
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => { setShowInvite(false); setInviteToken('') }}>Done</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
