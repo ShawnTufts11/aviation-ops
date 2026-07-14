@@ -9,8 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import Boolean, Column, DateTime, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -34,9 +33,9 @@ class Organization(Base):
     )
     currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
     country: Mapped[str] = mapped_column(String(2), default="BS", nullable=False)
-    regs: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
+    regs: Mapped[dict] = mapped_column(JSON, default=list, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    settings: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

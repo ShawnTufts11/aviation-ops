@@ -10,8 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, DateTime, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -41,10 +40,10 @@ class AuditLog(Base):
         String(36), nullable=False, index=True
     )
     old_values: Mapped[dict] = mapped_column(
-        JSONB, default=dict, nullable=False
+        JSON, default=dict, nullable=False
     )
     new_values: Mapped[dict] = mapped_column(
-        JSONB, default=dict, nullable=False
+        JSON, default=dict, nullable=False
     )
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(

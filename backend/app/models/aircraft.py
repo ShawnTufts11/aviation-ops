@@ -22,11 +22,11 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -189,8 +189,8 @@ class Aircraft(Base):
     total_cycles: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
 
     # ── Metadata ──────────────────────────────────────────────────────────
-    metadata: Mapped[dict] = mapped_column(
-        JSONB, default=dict, nullable=False, comment="Flexible extra fields"
+    extra_metadata: Mapped[dict] = mapped_column(
+        JSON, default=dict, nullable=False, comment="Flexible extra fields"
     )
 
     created_at: Mapped[datetime] = mapped_column(

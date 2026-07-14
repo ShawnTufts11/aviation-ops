@@ -14,7 +14,7 @@ from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.core.permissions import Role
+from app.core.roles import Role
 
 
 class User(Base):

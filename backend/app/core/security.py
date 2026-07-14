@@ -11,30 +11,26 @@ from typing import Any, Optional
 
 from itsdangerous import URLSafeTimedSerializer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt as _bcrypt
 import pyotp
 
 from app.core.config import settings
 
 # ── Password hashing ───────────────────────────────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# ── Invite token serializer ────────────────────────────────────────────────
-invite_serializer = URLSafeTimedSerializer(
-    secret_key=settings.SECRET_KEY,
-    salt="invite-token",
-)
 
 
-# ── Password helpers ───────────────────────────────────────────────────────
 def hash_password(password: str) -> str:
     """Return a bcrypt hash of *password*."""
-    return pwd_context.hash(password)
+    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Return True if *plain_password* matches *hashed_password*."""
-    return pwd_context.verify(plain_password, hashed_password)
+    return _bcrypt.checkpw(
+        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+    )
+
+# ── Invite token serializer ────────────────────────────────────────────────
 
 
 # ── JWT helpers ────────────────────────────────────────────────────────────
@@ -106,6 +102,12 @@ def get_mfa_provisioning_uri(secret: str, email: str) -> str:
 
 
 # ── Invite token helpers ───────────────────────────────────────────────────
+invite_serializer = URLSafeTimedSerializer(
+    secret_key=settings.SECRET_KEY,
+    salt="invite-token",
+)
+
+
 def generate_invite_token(email: str, org_id: str, role: str = "pilot") -> str:
     """Sign an invite token embedding *email*, *org_id*, and *role*."""
     return invite_serializer.dumps({"email": email, "org_id": org_id, "role": role})

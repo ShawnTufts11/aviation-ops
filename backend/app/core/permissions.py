@@ -1,13 +1,12 @@
 """
 Role-Based Access Control (RBAC) dependencies for FastAPI.
 
-Provides ``Role`` enum, ``require_role`` dependency, ``require_org_membership``,
+Provides ``require_role`` dependency, ``require_org_membership``,
 and ``get_current_user`` for extracting the authenticated user from JWT.
 """
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import Any, Optional
 
 from fastapi import Depends, HTTPException, status
@@ -16,21 +15,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.roles import Role
 from app.core.security import decode_token
 from app.models.user import User
 
 security_scheme = HTTPBearer(auto_error=False)
-
-
-class Role(str, Enum):
-    """Application roles ordered by privilege (highest first)."""
-
-    SUPER_ADMIN = "super_admin"
-    OPS_MANAGER = "ops_manager"
-    ADMIN = "admin"
-    PILOT = "pilot"
-    MECHANIC = "mechanic"
-    READONLY = "readonly"
 
 
 # ── Dependencies ───────────────────────────────────────────────────────────
