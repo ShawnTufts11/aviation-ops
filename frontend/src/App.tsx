@@ -12,12 +12,12 @@ import MissionDetailPage from '@/app/pages/MissionDetailPage'
 import PassengersPage from '@/app/pages/PassengersPage'
 import PassengerDetailPage from '@/app/pages/PassengerDetailPage'
 import UsersAdminPage from '@/app/pages/UsersAdminPage'
+import SettingsPage from '@/app/pages/SettingsPage'
 import FlightsPage from '@/app/pages/FlightsPage'
 import MaintenancePage from '@/app/pages/MaintenancePage'
 import CrewPage from '@/app/pages/CrewPage'
 import CompliancePage from '@/app/pages/CompliancePage'
 import FinancePage from '@/app/pages/FinancePage'
-import SettingsPage from '@/app/pages/SettingsPage'
 import LoginPage from '@/app/pages/LoginPage'
 import RegisterPage from '@/app/pages/RegisterPage'
 import NotFoundPage from '@/app/pages/NotFoundPage'
@@ -177,6 +177,16 @@ export default function App() {
             <AuthGuard>
               <RootLayout>
                 <FinancePage />
+              </RootLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <AuthGuard>
+              <RootLayout>
+                <SettingsPage />
               </RootLayout>
             </AuthGuard>
           }

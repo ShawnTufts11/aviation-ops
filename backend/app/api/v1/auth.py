@@ -55,7 +55,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # ── Helpers ───────────────────────────────────────────────────────
 
 def _create_tokens(user: User, org: Organization) -> dict[str, str]:
-    """Create access + refresh tokens for a given user."""
+    """Create access + refresh tokens for a given user.
+
+    Reads session_timeout_minutes from the org's settings (capped at 480).
+    """
+    org_settings = org.settings or {}
+    timeout = org_settings.get("session_timeout_minutes")
     token_data = {
         "sub": user.id,
         "org_id": user.organization_id,
@@ -63,7 +68,7 @@ def _create_tokens(user: User, org: Organization) -> dict[str, str]:
         "email": user.email,
     }
     return {
-        "access_token": create_access_token(data=token_data),
+        "access_token": create_access_token(data=token_data, timeout_minutes=timeout),
         "refresh_token": create_refresh_token(data=token_data),
     }
 
