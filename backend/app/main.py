@@ -32,6 +32,7 @@ def _build_v1_router() -> FastAPI:
     from app.api.v1 import aircraft
     from app.api.v1 import maintenance
     from app.api.v1 import flights
+    from app.api.v1 import crew
 
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(auth.router)
@@ -40,6 +41,7 @@ def _build_v1_router() -> FastAPI:
     api_v1.include_router(aircraft.router)
     api_v1.include_router(maintenance.router)
     api_v1.include_router(flights.router)
+    api_v1.include_router(crew.router)
     return api_v1
 
 

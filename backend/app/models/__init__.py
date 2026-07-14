@@ -6,6 +6,7 @@ from app.models.aircraft import Aircraft, AircraftComponent  # noqa: F401
 from app.models.audit import AuditLog  # noqa: F401
 from app.models.maintenance import MaintenanceTask  # noqa: F401
 from app.models.flight import Flight, Route  # noqa: F401
+from app.models.crew import CrewMember, CrewQualification  # noqa: F401
 
 __all__ = [
     "Organization",
