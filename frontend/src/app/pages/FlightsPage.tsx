@@ -62,6 +62,32 @@ export default function FlightsPage() {
   const [schedDep, setSchedDep] = useState('')
   const [pax, setPax] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [mxWarnings, setMxWarnings] = useState<string[]>([])
+
+  // Run pre-flight checks when aircraft + route selected
+  useEffect(() => {
+    if (!acId || !dep || !arr) { setMxWarnings([]); return }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get('/api/v1/ops-checks/maintenance-conflicts', {
+          params: { aircraft_id: acId },
+        })
+        if (res.data.has_conflicts) {
+          const warns: string[] = []
+          if (res.data.severity === 'critical') {
+            warns.push(`⚠ ${res.data.overdue_count} overdue maintenance items — resolve before flight`)
+          }
+          if (res.data.total_open > (res.data.overdue_count || 0)) {
+            warns.push(`🟡 ${res.data.total_open} open maintenance tasks`)
+          }
+          setMxWarnings(warns)
+        } else {
+          setMxWarnings([])
+        }
+      } catch { /* silent */ }
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [acId, dep, arr])
 
   const fetchData = async () => {
     setLoading(true)
@@ -219,6 +245,27 @@ export default function FlightsPage() {
             <DialogDescription>Create a new flight leg.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreate} className="space-y-4">
+            {/* Pre-flight warnings */}
+            {mxWarnings.length > 0 && (
+              <div className="space-y-2">
+                {mxWarnings.map((w: any, i: number) => (
+                  <div key={i} className={`flex items-start gap-2 rounded-md border p-3 text-sm ${
+                    w.includes('⛔') ? 'border-red-500/20 bg-red-500/5 text-red-500' :
+                    w.startsWith('⚠') ? 'border-red-500/20 bg-red-500/5 text-red-500' :
+                    w.startsWith('🟡') ? 'border-amber-500/20 bg-amber-500/5 text-amber-500' :
+                    'border-amber-500/20 bg-amber-500/5 text-amber-500'
+                  }`}>
+                    <span className="text-base leading-none">{w[0]}</span>
+                    <span>{w.slice(2)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {mxWarnings.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Resolve conflicts before dispatching. Check Maintenance page for details.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Departure (ICAO)</label>
