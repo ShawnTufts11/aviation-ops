@@ -30,12 +30,14 @@ def _build_v1_router() -> FastAPI:
     from app.api.v1 import onboarding
     from app.api.v1 import helpdesk
     from app.api.v1 import aircraft
+    from app.api.v1 import maintenance
 
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(auth.router)
     api_v1.include_router(onboarding.router)
     api_v1.include_router(helpdesk.router)
     api_v1.include_router(aircraft.router)
+    api_v1.include_router(maintenance.router)
     return api_v1
 
 
