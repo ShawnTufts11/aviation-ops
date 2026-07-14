@@ -75,12 +75,21 @@ class MfaChallengeResponse(BaseModel):
 
 class InviteRequest(BaseModel):
     email: EmailStr
-    role: str = Field(..., pattern=r"^(ops_manager|admin|pilot|mechanic|readonly)$")
+    role: str = Field(..., pattern=r"^(ops_manager|admin|pilot|mechanic|dispatcher|readonly)$")
+    display_name: str = Field(..., min_length=1, max_length=255,
+        description="Pre-set name so they don't have to enter it")
+    phone: Optional[str] = None
+    required_notes: Optional[str] = Field(None,
+        description="E.g. 'Must provide emergency contact and date of birth'")
 
 
 class InviteResponse(BaseModel):
     invite_token: str
     expires_in_hours: int = 48
+    display_name: str
+    email: str
+    role: str
+    required_notes: Optional[str] = None
 
 
 class AcceptInviteRequest(BaseModel):

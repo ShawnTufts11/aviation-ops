@@ -14,23 +14,19 @@ export default function AcceptInvitePage() {
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
+  const [accepted, setAccepted] = useState(false)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!token) { setError('Invalid invite link — no token found'); return }
+    if (!token) { setError('Invalid invite link'); return }
     setSubmitting(true)
     setError('')
     try {
-      await api.post('/api/v1/auth/accept-invite', {
-        token,
-        display_name: name,
-        password,
-      })
-      setSuccess(true)
+      await api.post('/api/v1/auth/accept-invite', { token, display_name: name, password })
+      setAccepted(true)
       setTimeout(() => navigate('/'), 2000)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to accept invite. Token may be expired.')
+      setError(err.response?.data?.detail || 'Invite expired or invalid')
     }
     setSubmitting(false)
   }
@@ -41,15 +37,16 @@ export default function AcceptInvitePage() {
         <Card className="w-full max-w-md">
           <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
             <XCircle className="h-12 w-12 text-red-500" />
-            <p className="text-lg font-medium">Invalid Invite Link</p>
-            <p className="text-sm text-muted-foreground">No invite token found in the URL.</p>
+            <p className="text-lg font-medium">Invalid Link</p>
+            <p className="text-sm text-muted-foreground">No invite token found.</p>
+            <Button onClick={() => navigate('/login')}>Go to Login</Button>
           </CardContent>
         </Card>
       </div>
     )
   }
 
-  if (success) {
+  if (accepted) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
@@ -71,7 +68,7 @@ export default function AcceptInvitePage() {
             <UserPlus className="h-6 w-6 text-brand-400" />
           </div>
           <CardTitle className="text-xl">Accept Invitation</CardTitle>
-          <p className="text-sm text-muted-foreground">You've been invited to join an organization. Set up your account below.</p>
+          <p className="text-sm text-muted-foreground">Set up your account to join the organization.</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

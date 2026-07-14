@@ -113,9 +113,12 @@ invite_serializer = URLSafeTimedSerializer(
 )
 
 
-def generate_invite_token(email: str, org_id: str, role: str = "pilot") -> str:
-    """Sign an invite token embedding *email*, *org_id*, and *role*."""
-    return invite_serializer.dumps({"email": email, "org_id": org_id, "role": role})
+def generate_invite_token(email: str, org_id: str, role: str = "pilot",
+                          **extra: str) -> str:
+    """Sign an invite token embedding *email*, *org_id*, *role*, and optional fields."""
+    payload = {"email": email, "org_id": org_id, "role": role}
+    payload.update(extra)
+    return invite_serializer.dumps(payload)
 
 
 def verify_invite_token(

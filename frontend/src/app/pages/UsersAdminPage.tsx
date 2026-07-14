@@ -30,7 +30,9 @@ export default function UsersAdminPage() {
   const [search, setSearch] = useState('')
   const [showInvite, setShowInvite] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteName, setInviteName] = useState('')
   const [inviteRole, setInviteRole] = useState('pilot')
+  const [inviteRequiredNotes, setInviteRequiredNotes] = useState('')
   const [inviteToken, setInviteToken] = useState('')
   const [copied, setCopied] = useState(false)
 
@@ -53,7 +55,12 @@ export default function UsersAdminPage() {
 
   const handleInvite = async () => {
     try {
-      const res = await api.post('/api/v1/auth/invite', { email: inviteEmail, role: inviteRole })
+      const res = await api.post('/api/v1/auth/invite', {
+        email: inviteEmail,
+        role: inviteRole,
+        display_name: inviteName,
+        required_notes: inviteRequiredNotes || undefined,
+      })
       setInviteToken(res.data.invite_token)
     } catch { /* silent */ }
   }
@@ -138,9 +145,14 @@ export default function UsersAdminPage() {
           {!inviteToken ? (
             <div className="space-y-4">
               <div className="space-y-2">
+                <label className="text-sm font-medium">Full Name</label>
+                <Input placeholder="Jane Pilot" value={inviteName}
+                  onChange={(e) => setInviteName(e.target.value)} required />
+              </div>
+              <div className="space-y-2">
                 <label className="text-sm font-medium">Email</label>
                 <Input type="email" placeholder="pilot@example.com" value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)} />
+                  onChange={(e) => setInviteEmail(e.target.value)} required />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Role</label>
@@ -154,8 +166,14 @@ export default function UsersAdminPage() {
                   <option value="readonly">Read Only</option>
                 </select>
               </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Required Info <span className="text-muted-foreground">(optional)</span></label>
+                <textarea className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="E.g. 'Must provide emergency contact and date of birth before first flight'"
+                  value={inviteRequiredNotes} onChange={(e) => setInviteRequiredNotes(e.target.value)} />
+              </div>
               <div className="flex justify-end">
-                <Button onClick={handleInvite} disabled={!inviteEmail}>Generate Invite</Button>
+                <Button onClick={handleInvite} disabled={!inviteEmail || !inviteName}>Generate Invite</Button>
               </div>
             </div>
           ) : (

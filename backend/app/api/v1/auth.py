@@ -320,21 +320,64 @@ async def mfa_verify(
 async def invite_user(
     body: InviteRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> InviteResponse:
-    """Generate an invite token for a new user (ops_manager+ only)."""
+    """Invite a user — pre-creates their profile and generates invite link.
+
+    Only super_admins and ops_managers can invite. The invited user
+    sets their password when they accept. Required fields annotation
+    shows what they still need to provide.
+    """
     if current_user.role not in ("super_admin", "ops_manager"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only super_admins and ops_managers can invite users",
         )
 
+    # Check if user already exists
+    from sqlalchemy import select
+    from app.models.user import User as UserModel
+    existing = await db.execute(
+        select(UserModel).where(UserModel.email == body.email)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User with this email already exists",
+        )
+
+    # Pre-create the user profile (inactive until they accept)
+    user = UserModel(
+        id=str(uuid.uuid4()),
+        organization_id=current_user.organization_id,
+        email=body.email,
+        display_name=body.display_name,
+        phone=body.phone,
+        role=body.role,
+        password_hash="PENDING",  # placeholder, replaced on accept
+        is_active=False,
+    )
+    db.add(user)
+    await db.flush()
+
     token = generate_invite_token(
         email=body.email,
         org_id=current_user.organization_id,
         role=body.role,
+        user_id=user.id,
+        display_name=body.display_name,
     )
 
-    return InviteResponse(invite_token=token, expires_in_hours=48)
+    await db.commit()
+
+    return InviteResponse(
+        invite_token=token,
+        expires_in_hours=48,
+        display_name=body.display_name,
+        email=body.email,
+        role=body.role,
+        required_notes=body.required_notes,
+    )
 
 
 @router.post("/accept-invite", status_code=status.HTTP_201_CREATED)
@@ -351,32 +394,40 @@ async def accept_invite(
         )
 
     email = payload.get("email")
-    org_id = payload.get("org_id")
+    user_id = payload.get("user_id")
     role = payload.get("role", "pilot")
 
-    # Verify org still exists and is active
-    org = await db.get(Organization, org_id)
-    if not org or not org.is_active:
+    # Find the pre-created user profile
+    from app.models.user import User as UserModel
+    if user_id:
+        user = await db.get(UserModel, user_id)
+    else:
+        # Fallback for legacy tokens without user_id
+        result = await db.execute(
+            select(UserModel).where(
+                UserModel.email == email,
+                UserModel.is_active == False,
+            )
+        )
+        user = result.scalar_one_or_none()
+
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Organization not found or inactive",
+            detail="Invite not found or already accepted",
         )
 
-    user = User(
-        id=str(uuid.uuid4()),
-        organization_id=org_id,
-        email=email,
-        password_hash=hash_password(body.password),
-        display_name=body.display_name,
-        phone=body.phone,
-        role=role,
-        is_active=True,
-        mfa_enabled=False,
-    )
+    # Activate the user
+    user.password_hash = hash_password(body.password)
+    user.display_name = body.display_name or user.display_name
+    if body.phone:
+        user.phone = body.phone
+    user.is_active = True
     db.add(user)
     await db.commit()
     await db.refresh(user)
 
+    org = await db.get(Organization, user.organization_id)
     tokens = _create_tokens(user, org)
 
     return TokenResponse(**tokens, user=UserResponse.model_validate(user))
