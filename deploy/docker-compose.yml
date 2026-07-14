@@ -1,0 +1,94 @@
+# ParaRig Aviation Operations Suite — Docker Compose
+#
+# Usage:
+#   docker compose up -d              # Launch all services
+#   docker compose up -d --build      # Rebuild and launch
+#   docker compose logs -f backend    # Watch backend logs
+#
+# Single-user dev: set DATABASE_URL=sqlite+aiosqlite:///./pararig_ops.db
+# Production:      set DATABASE_URL=postgresql+asyncpg://pararig:${DB_PASSWORD}@postgres:5432/pararig_ops
+
+services:
+  # ── Database ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: pararig-db
+    restart: unless-stopped
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: pararig_ops
+      POSTGRES_USER: pararig
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pararig -d pararig_ops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pararig-net
+
+  # ── Backend API ────────────────────────────────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: pararig-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - uploads:/app/uploads
+      - static:/app/static
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://pararig:${DB_PASSWORD}@postgres:5432/pararig_ops
+      - ENVIRONMENT=production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - pararig-net
+
+  # ── Frontend (static files served via Caddy) ──────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: pararig-ui
+    restart: unless-stopped
+    networks:
+      - pararig-net
+
+  # ── Reverse Proxy (auto-TLS) ──────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: pararig-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - pararig-net
+
+volumes:
+  pgdata:
+  uploads:
+  static:
+  caddy_data:
+  caddy_config:
+
+networks:
+  pararig-net:
+    driver: bridge

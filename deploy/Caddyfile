@@ -1,0 +1,54 @@
+# ParaRig Aviation Operations Suite — Caddy Configuration
+#
+# Development:    ops.pararig.test (local DNS or /etc/hosts)
+# Production:     ops.pararig.com (auto-TLS via Let's Encrypt)
+# Tailscale dev:  http://100.110.158.76:8899  (docs server)
+#
+# The comment lines below are example production configs.
+# Uncomment and customize for your domain.
+
+# ── Production (with TLS) ──────────────────────────────────────
+# ops.pararig.com {
+#     tls ops@pararig.com
+#     reverse_proxy frontend:80
+#     handle_path /api/* {
+#         reverse_proxy backend:8000
+#     }
+#     handle_path /ws/* {
+#         reverse_proxy backend:8000
+#     }
+#     handle_path /uploads/* {
+#         root /app/uploads
+#     }
+#     header /* {
+#         Strict-Transport-Security "max-age=63072000"
+#         X-Content-Type-Options "nosniff"
+#         X-Frame-Options "DENY"
+#         Referrer-Policy "strict-origin-when-cross-origin"
+#     }
+#     encode gzip
+# }
+
+# ── Development (HTTP only, for local / Tailscale) ─────────────
+:80 {
+    reverse_proxy frontend:80
+
+    handle_path /api/* {
+        reverse_proxy backend:8000
+    }
+
+    handle_path /ws/* {
+        reverse_proxy backend:8000
+    }
+
+    handle_path /docs {
+        reverse_proxy backend:8000
+    }
+
+    handle_path /openapi.json {
+        reverse_proxy backend:8000
+    }
+
+    encode gzip
+    header /api/* Access-Control-Allow-Origin "*"
+}

@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Environment / Secrets
+.env
+*.env.local
+*.env.production
+.env.development
+**/config.yaml
+**/*.key
+**/*.pem
+**/*.cert
+
+# Database (dev)
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker
+.docker/
+
+# Logs
+*.log
+logs/
+
+# Uploads (dev)
+uploads/
+static/
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage/
