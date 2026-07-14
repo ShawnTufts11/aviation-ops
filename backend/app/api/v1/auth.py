@@ -16,6 +16,8 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, get_optional_user
+from app.core.permissions import require_role
+from app.core.roles import Role
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -34,6 +36,8 @@ from app.schemas import (
     InviteRequest,
     InviteResponse,
     LoginRequest,
+    MfaChallengeRequest,
+    MfaChallengeResponse,
     MfaSetupResponse,
     MfaVerifyRequest,
     MfaVerifyResponse,
@@ -141,8 +145,12 @@ async def register(
 async def login(
     body: LoginRequest,
     db: AsyncSession = Depends(get_db),
-) -> TokenResponse:
-    """Authenticate with email + password, return JWT tokens."""
+):
+    """Authenticate with email + password.
+
+    If MFA is enabled for this user, returns a temp_token for
+    the second factor step (/auth/mfa/challenge).
+    """
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
@@ -158,18 +166,52 @@ async def login(
             detail="Account is disabled",
         )
 
-    # Update last_login
     user.last_login = datetime.now(timezone.utc)
     db.add(user)
-
-    # Fetch org for response
     org = await db.get(Organization, user.organization_id)
-
     await db.commit()
 
-    tokens = _create_tokens(user, org)
+    # If MFA is enabled, issue temp token instead of real tokens
+    if user.mfa_enabled:
+        temp_token = create_access_token(
+            data={"sub": user.id, "org_id": user.organization_id, "role": user.role, "mfa_pending": True},
+            expires_delta=timedelta(minutes=5),
+        )
+        return {"mfa_required": True, "temp_token": temp_token}
 
+    tokens = _create_tokens(user, org)
     return TokenResponse(**tokens, user=UserResponse.model_validate(user))
+
+
+@router.post("/mfa/challenge")
+async def mfa_challenge(
+    body: MfaChallengeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> MfaChallengeResponse:
+    """Verify TOTP code from an MFA challenge and issue real tokens."""
+    payload = decode_token(body.temp_token)
+    if payload is None or not payload.get("mfa_pending"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired MFA challenge token",
+        )
+
+    user = await db.get(User, payload.get("sub"))
+    if not user or not user.is_active or not user.mfa_secret:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or MFA not configured",
+        )
+
+    if not verify_mfa_totp(user.mfa_secret, body.totp_code):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid TOTP code",
+        )
+
+    org = await db.get(Organization, user.organization_id)
+    tokens = _create_tokens(user, org)
+    return MfaChallengeResponse(**tokens)
 
 
 # ── Refresh ───────────────────────────────────────────────────────
