@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
 import {
   Plane, Wrench, Users, History, Calendar,
-  AlertTriangle, Clock, ArrowRight,
+  AlertTriangle, Clock, ArrowRight, Siren,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog'
 import { Link } from 'react-router-dom'
 import api from '@/lib/api'
 
@@ -27,7 +31,12 @@ export default function DashboardPage() {
   const [mxOverdue, setMxOverdue] = useState(0)
   const [mxDueSoon, setMxDueSoon] = useState(0)
   const [crewSummary, setCrewSummary] = useState<CrewSummary | null>(null)
+  const [emergencies, setEmergencies] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [showEmergencyDialog, setShowEmergencyDialog] = useState(false)
+  const [emergencyTitle, setEmergencyTitle] = useState('')
+  const [emergencyDesc, setEmergencyDesc] = useState('')
+  const [emergencySubmitting, setEmergencySubmitting] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -36,13 +45,15 @@ export default function DashboardPage() {
       api.get('/api/v1/flights/active'),
       api.get('/api/v1/maintenance?per_page=1'),
       api.get('/api/v1/crew/summary/counts'),
-    ]).then(([acRes, flRes, actRes, mxRes, crewRes]) => {
+      api.get('/api/v1/comms/emergency/active'),
+    ]).then(([acRes, flRes, actRes, mxRes, crewRes, emRes]) => {
       setAircraft(acRes.data.data)
       setFlights(flRes.data)
       setActiveFlights(actRes.data)
       setMxOverdue(mxRes.data.overdue_count)
       setMxDueSoon(mxRes.data.due_soon_count)
       setCrewSummary(crewRes.data)
+      setEmergencies(emRes.data || [])
     }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
@@ -71,6 +82,13 @@ export default function DashboardPage() {
             <Calendar className="h-3.5 w-3.5" /> {dateStr}
           </p>
         </div>
+        <Button
+          variant="destructive"
+          onClick={() => setShowEmergencyDialog(true)}
+          className="gap-2"
+        >
+          <Siren className="h-4 w-4" /> Emergency
+        </Button>
       </div>
 
       {/* Active flights banner */}
@@ -239,6 +257,79 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Emergency alerts banner */}
+      {emergencies.length > 0 && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-red-500">
+            <Siren className="h-4 w-4 animate-pulse" />
+            Active Emergency
+          </div>
+          {emergencies.map((e: any) => (
+            <div key={e.id} className="mt-2 flex items-center justify-between text-sm">
+              <span className="font-medium">{e.title}</span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-red-500"
+                onClick={async () => {
+                  await api.post(`/api/v1/comms/emergency/${e.id}/acknowledge`)
+                  setEmergencies((prev: any[]) => prev.filter((a: any) => a.id !== e.id))
+                }}
+              >
+                Acknowledge
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Emergency Alert Dialog */}
+      <Dialog open={showEmergencyDialog} onOpenChange={setShowEmergencyDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-500">
+              <Siren className="h-5 w-5" /> Trigger Emergency Alert
+            </DialogTitle>
+            <DialogDescription>This will notify all active users immediately.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={async (e) => {
+            e.preventDefault()
+            setEmergencySubmitting(true)
+            try {
+              await api.post('/api/v1/comms/emergency', {
+                title: emergencyTitle,
+                description: emergencyDesc || null,
+              })
+              setShowEmergencyDialog(false)
+              setEmergencyTitle('')
+              setEmergencyDesc('')
+              window.location.reload()
+            } catch { /* silent */ }
+            setEmergencySubmitting(false)
+          }} className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Alert Title</label>
+              <Input value={emergencyTitle} onChange={(e) => setEmergencyTitle(e.target.value)} placeholder="e.g., Aircraft incident at MYNN" required />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <textarea
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={emergencyDesc}
+                onChange={(e) => setEmergencyDesc(e.target.value)}
+                placeholder="Brief description of the situation..."
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setShowEmergencyDialog(false)}>Cancel</Button>
+              <Button type="submit" variant="destructive" disabled={emergencySubmitting}>
+                {emergencySubmitting ? 'Sending...' : 'Trigger Alert'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
