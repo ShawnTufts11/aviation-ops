@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.permissions import require_org_membership
 from app.models.user import User
 from app.models.aircraft import Aircraft
+from app.models.finance import FinancialRecord, RecordType
 
 router = APIRouter(prefix="/helpdesk", tags=["helpdesk"])
 
@@ -140,6 +141,34 @@ async def _answer_general_query(
             f"{statuses.get('active', 0)} active, "
             f"{statuses.get('in_maintenance', 0)} in maintenance, "
             f"{statuses.get('grounded', 0)} grounded."
+        )
+
+    # Financial: "What's my profit?" or "P&L" or "revenue"
+    if "profit" in q_lower or "pnl" in q_lower or "revenue" in q_lower or "financial" in q_lower:
+        from datetime import date
+        month_start = date.today().replace(day=1)
+        rev = await db.execute(
+            select(func.sum(FinancialRecord.amount)).where(
+                FinancialRecord.organization_id == org_id,
+                FinancialRecord.record_type == RecordType.REVENUE,
+                FinancialRecord.entry_date >= month_start,
+            )
+        )
+        cost = await db.execute(
+            select(func.sum(FinancialRecord.amount)).where(
+                FinancialRecord.organization_id == org_id,
+                FinancialRecord.record_type == RecordType.COST,
+                FinancialRecord.entry_date >= month_start,
+            )
+        )
+        total_rev = float(rev.scalar() or 0)
+        total_cost = float(cost.scalar() or 0)
+        net = total_rev - total_cost
+        return (
+            f"**Month-to-Date Financials:**\\n"
+            f"  Revenue: **${total_rev:,.2f}**\\n"
+            f"  Costs:   **${total_cost:,.2f}**\\n"
+            f"  Net:     **${net:,.2f}**"
         )
 
     return None

@@ -201,6 +201,43 @@ async def update_flight(
         delta = flight.actual_arrival - flight.actual_departure
         flight.flight_time_hours = round(delta.total_seconds() / 3600, 2)
 
+    # Auto-create financial records when completed
+    if update_data.get("status") == "completed" and old_status != "completed":
+        from app.models.finance import FinancialRecord, RecordType, CostCategory
+        from datetime import date
+        import uuid
+
+        # Revenue entry (charter)
+        rev_estimate = 5000.0  # placeholder — replace with rate card
+        rev = FinancialRecord(
+            id=str(uuid.uuid4()),
+            organization_id=current_user.organization_id,
+            aircraft_id=flight.aircraft_id,
+            flight_id=flight.id,
+            record_type=RecordType.REVENUE,
+            category=CostCategory.CHARTER_REVENUE,
+            amount=rev_estimate,
+            description=f"Flight {flight.departure_airport}→{flight.arrival_airport}",
+            entry_date=date.today(),
+        )
+        db.add(rev)
+
+        # Fuel cost estimate
+        if flight.fuel_burned_liters:
+            fuel_cost = round(flight.fuel_burned_liters * 1.50, 2)  # $1.50/L estimate
+            cost = FinancialRecord(
+                id=str(uuid.uuid4()),
+                organization_id=current_user.organization_id,
+                aircraft_id=flight.aircraft_id,
+                flight_id=flight.id,
+                record_type=RecordType.COST,
+                category=CostCategory.FUEL,
+                amount=fuel_cost,
+                description=f"Fuel {flight.fuel_burned_liters}L",
+                entry_date=date.today(),
+            )
+            db.add(cost)
+
     flight.updated_at = datetime.now(timezone.utc)
     db.add(flight)
     await db.commit()
