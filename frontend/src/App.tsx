@@ -4,6 +4,7 @@ import AuthGuard from '@/features/auth/AuthGuard'
 import RootLayout from '@/app/layout/RootLayout'
 import DashboardPage from '@/app/pages/DashboardPage'
 import FleetPage from '@/app/pages/FleetPage'
+import AircraftDetailPage from '@/app/pages/AircraftDetailPage'
 import FlightsPage from '@/app/pages/FlightsPage'
 import MaintenancePage from '@/app/pages/MaintenancePage'
 import CrewPage from '@/app/pages/CrewPage'
@@ -39,6 +40,16 @@ export default function App() {
             <AuthGuard>
               <RootLayout>
                 <FleetPage />
+              </RootLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/fleet/:id"
+          element={
+            <AuthGuard>
+              <RootLayout>
+                <AircraftDetailPage />
               </RootLayout>
             </AuthGuard>
           }
