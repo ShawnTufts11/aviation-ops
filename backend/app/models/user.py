@@ -43,6 +43,7 @@ class User(Base):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    pii_clearance: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="Can view PII (passenger passport, SSN, DOB, etc.)")
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mfa_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_login: Mapped[datetime | None] = mapped_column(

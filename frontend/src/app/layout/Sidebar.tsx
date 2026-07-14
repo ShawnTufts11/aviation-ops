@@ -10,6 +10,7 @@ import {
   Wrench,
   Users,
   UserPlus,
+  Shield,
   ShieldCheck,
   Wallet,
   Settings,
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { label: 'Crew', path: '/crew', icon: <Users className="h-5 w-5" /> },
   { label: 'Compliance', path: '/compliance', icon: <ShieldCheck className="h-5 w-5" /> },
   { label: 'Finance', path: '/finance', icon: <Wallet className="h-5 w-5" /> },
+  { label: 'User Permissions', path: '/admin/users', icon: <Shield className="h-5 w-5" /> },
   { label: 'Settings', path: '/settings', icon: <Settings className="h-5 w-5" /> },
 ]
 

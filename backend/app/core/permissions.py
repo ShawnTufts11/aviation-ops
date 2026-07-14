@@ -128,19 +128,17 @@ PII_CLEARANCE_ROLES = [Role.SUPER_ADMIN, Role.OPS_MANAGER]
 def require_pii_clearance() -> Any:
     """Restrict access to Personally Identifiable Information (PII).
 
-    Only SUPER_ADMIN and OPS_MANAGER roles can view full passenger
-    profiles (passport numbers, DOB, SSN, etc.). Other roles get
-    redacted/minimal data.
-
-    Usage:
-        user: User = Depends(require_pii_clearance()),
+    Requires the user to have pii_clearance=True on their profile.
+    SUPER_ADMIN role is always granted clearance regardless of flag.
     """
 
     async def _checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in PII_CLEARANCE_ROLES:
+        if current_user.role == Role.SUPER_ADMIN:
+            return current_user
+        if not current_user.pii_clearance:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="PII access requires SUPER_ADMIN or OPS_MANAGER role",
+                detail="PII access requires pii_clearance on your user profile — contact your super admin",
             )
         return current_user
 
@@ -149,4 +147,4 @@ def require_pii_clearance() -> Any:
 
 def has_pii_clearance(user: User) -> bool:
     """Check if a user has PII clearance without raising an error."""
-    return user.role in PII_CLEARANCE_ROLES
+    return user.role == Role.SUPER_ADMIN or user.pii_clearance
