@@ -123,8 +123,8 @@ class Aircraft(Base):
     )
 
     # ── Weights & capacities ──────────────────────────────────────────────
-    mtow_kg: Mapped[Decimal] = mapped_column(
-        Numeric(8, 2), nullable=False, comment="Maximum Take-Off Weight (kg)"
+    mtow_kg: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2), nullable=True, comment="Maximum Take-Off Weight (kg)"
     )
     mlw_kg: Mapped[Decimal | None] = mapped_column(
         Numeric(8, 2), nullable=True, comment="Maximum Landing Weight (kg)"

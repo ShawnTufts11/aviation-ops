@@ -10,7 +10,29 @@ from enum import Enum
 
 
 class Role(str, Enum):
-    """Application roles ordered by privilege (highest first)."""
+    """Application roles ordered by privilege (highest first).
+
+    Permission Matrix:
+    ┌─────────────────┬──────────┬────────────┬───────┬───────┬─────────┬──────────┐
+    │ Resource        │ SuperAdm │ OpsManager │ Admin │ Pilot │ Mechanic │ ReadOnly │
+    ├─────────────────┼──────────┼────────────┼───────┼───────┼─────────┼──────────┤
+    │ Aircraft: Read  │    ✅    │    ✅      │  ✅   │  ✅   │   ✅    │   ✅     │
+    │ Aircraft: Write │    ✅    │    ✅      │  ✅   │  ❌   │   ❌    │   ❌     │
+    │ Aircraft: Delete│    ✅    │    ❌      │  ❌   │  ❌   │   ❌    │   ❌     │
+    │ Flights: Read   │    ✅    │    ✅      │  ✅   │  ✅   │   ❌    │   ✅     │
+    │ Flights: Create │    ✅    │    ✅      │  ✅   │  ✅   │   ❌    │   ❌     │
+    │ Maintenance:R   │    ✅    │    ✅      │  ✅   │  ✅   │   ✅    │   ✅     │
+    │ Maintenance:W   │    ✅    │    ✅      │  ✅   │  ❌   │   ✅    │   ❌     │
+    │ Crew: Read      │    ✅    │    ✅      │  ✅   │  ✅   │   ❌    │   ✅     │
+    │ Crew: Write     │    ✅    │    ✅      │  ✅   │  ❌   │   ❌    │   ❌     │
+    │ Compliance: R   │    ✅    │    ✅      │  ✅   │  ❌   │   ❌    │   ✅     │
+    │ Compliance: W   │    ✅    │    ✅      │  ✅   │  ❌   │   ❌    │   ❌     │
+    │ Finance: Read   │    ✅    │    ✅      │  ✅   │  ❌   │   ❌    │   ✅     │
+    │ Finance: Write  │    ✅    │    ✅      │  ❌   │  ❌   │   ❌    │   ❌     │
+    │ Admin: Users    │    ✅    │    ❌      │  ❌   │  ❌   │   ❌    │   ❌     │
+    │ Admin: Settings │    ✅    │    ✅      │  ❌   │  ❌   │   ❌    │   ❌     │
+    └─────────────────┴──────────┴────────────┴───────┴───────┴─────────┴──────────┘
+    """
 
     SUPER_ADMIN = "super_admin"
     OPS_MANAGER = "ops_manager"

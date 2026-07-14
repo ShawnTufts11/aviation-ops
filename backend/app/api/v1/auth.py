@@ -171,6 +171,13 @@ async def login(
     org = await db.get(Organization, user.organization_id)
     await db.commit()
 
+    # Audit log the login
+    from app.core.audit import log_action
+    await log_action(
+        db=db, org_id=user.organization_id, user_id=user.id,
+        action="login", entity_type="user", entity_id=user.id,
+    )
+
     # If MFA is enabled, issue temp token instead of real tokens
     if user.mfa_enabled:
         temp_token = create_access_token(
