@@ -143,9 +143,71 @@ class Aircraft(Base):
     )
 
     # ── Performance ───────────────────────────────────────────────────────
-    cruise_speed_kt: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    range_nm: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    service_ceiling_ft: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cruise_speed_kt: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Typical cruise speed (knots TAS)"
+    )
+    cruise_fuel_flow_gph: Mapped[Decimal | None] = mapped_column(
+        Numeric(7, 1), nullable=True, comment="Fuel burn at typical cruise (gal/hr)"
+    )
+    typical_cruise_alt_ft: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Typical cruise altitude (feet MSL)"
+    )
+
+    # ── Climb / Descent ───────────────────────────────────────────────────
+    climb_speed_kt: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Best rate climb speed (KIAS)"
+    )
+    climb_rate_fpm: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Average climb rate (ft/min)"
+    )
+    descent_speed_kt: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Typical descent speed (KIAS)"
+    )
+    taxi_fuel_gallons: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 1), nullable=True, default=5.0,
+        comment="Estimated taxi fuel burn (gallons)"
+    )
+
+    # ── Range & reserves ──────────────────────────────────────────────────
+    range_nm: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Maximum range (nm, no reserves)"
+    )
+    max_range_with_reserves_nm: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Practical range with FAR 135 reserves"
+    )
+    service_ceiling_ft: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    reserve_fuel_minutes: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=45,
+        comment="Fuel reserve requirement in minutes (FAR 135 default 45)"
+    )
+
+    # ── Operational capabilities ──────────────────────────────────────────
+    overwater_capable: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Equipped for extended overwater (life rafts, ELT, etc.)"
+    )
+    known_icing_certified: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Certified for flight in known icing conditions"
+    )
+    rnp_approach_capable: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Capable of RNP/RNAV approach procedures"
+    )
+    rvsm_capable: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="RVSM certified (reduced vertical separation)"
+    )
+    autopilot_type: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default="basic",
+        comment="Autopilot capability: none, basic, coupled, fms"
+    )
+    deice_equipped: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Has de-icing boots / heated surfaces"
+    )
 
     # ── Status ────────────────────────────────────────────────────────────
     status: Mapped[AircraftStatus] = mapped_column(

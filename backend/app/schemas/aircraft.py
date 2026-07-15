@@ -66,6 +66,24 @@ class AircraftResponse(BaseModel):
     max_cargo_kg: Optional[float] = None
     total_airframe_hours: Optional[float] = None
     total_cycles: Optional[int] = None
+    # ── Performance fields ─────────────────────────────────────────
+    cruise_speed_kt: Optional[int] = None
+    cruise_fuel_flow_gph: Optional[float] = None
+    typical_cruise_alt_ft: Optional[int] = None
+    climb_speed_kt: Optional[int] = None
+    climb_rate_fpm: Optional[int] = None
+    descent_speed_kt: Optional[int] = None
+    taxi_fuel_gallons: Optional[float] = None
+    range_nm: Optional[int] = None
+    max_range_with_reserves_nm: Optional[int] = None
+    service_ceiling_ft: Optional[int] = None
+    reserve_fuel_minutes: Optional[int] = None
+    overwater_capable: bool = False
+    known_icing_certified: bool = False
+    rnp_approach_capable: bool = False
+    rvsm_capable: bool = False
+    autopilot_type: Optional[str] = None
+    deice_equipped: bool = False
     created_at: datetime
     updated_at: datetime
 
