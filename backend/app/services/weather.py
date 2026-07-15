@@ -1,55 +1,68 @@
 """
-Weather service — free aviation weather via Open-Meteo API.
+Aviation weather service — METAR/TAF via AviationWeather.gov (NOAA/FAA ADDS).
 
-No API key required. Provides current conditions and basic forecast
-for any airport by lat/lon coordinates.
+Free, no API key, no registration, no rate limits. Production FAA data.
+Provides real aviation weather: visibility, ceiling, flight category,
+winds aloft, SIGMETs — not just surface conditions.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
-OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
-
-# WMO weather codes → human-readable
-WMO_CODES: dict[int, str] = {
-    0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
-    45: "Foggy", 48: "Depositing rime fog",
-    51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
-    56: "Light freezing drizzle", 57: "Dense freezing drizzle",
-    61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain",
-    66: "Light freezing rain", 67: "Heavy freezing rain",
-    71: "Slight snow", 73: "Moderate snow", 75: "Heavy snow",
-    77: "Snow grains",
-    80: "Slight rain showers", 81: "Moderate rain showers", 82: "Violent rain showers",
-    85: "Slight snow showers", 86: "Heavy snow showers",
-    95: "Thunderstorm", 96: "Thunderstorm with slight hail", 99: "Thunderstorm with heavy hail",
-}
+AVWX_BASE = "https://aviationweather.gov/api/data/"
 
 
 @dataclass
-class WeatherReport:
-    """Current weather conditions at an airport."""
+class AviationWeather:
+    """Aviation-grade weather report from METAR data."""
 
     icao: str = ""
-    temperature_c: float | None = None
-    temperature_f: float | None = None
-    weather_code: int | None = None
-    weather_desc: str = "Unknown"
-    wind_speed_kts: float | None = None
-    wind_direction_deg: int | None = None
-    wind_direction_str: str = ""
-    visibility_km: float | None = None
-    visibility_statute_mi: float | None = None
-    source: str = "Open-Meteo"
+    source: str = "AviationWeather.gov"
     error: str = ""
 
+    # Timestamp
+    observation_time: str = ""
 
-def _deg_to_cardinal(deg: int | None) -> str:
-    """Convert wind direction degrees to cardinal string."""
+    # Temperature
+    temp_c: float | None = None
+    temp_f: float | None = None
+    dewpoint_c: float | None = None
+
+    # Wind
+    wind_dir_deg: int | None = None
+    wind_speed_kt: int | None = None
+    wind_gust_kt: int | None = None
+    wind_direction: str = ""
+
+    # Visibility
+    visibility_statute_mi: float | None = None
+    visibility_km: float | None = None
+
+    # Pressure
+    altimeter_in_hg: float | None = None
+    altimeter_mb: float | None = None
+
+    # Sky
+    sky_cover: str = ""
+    sky_ceiling_ft: int | None = None
+    sky_conditions: list[str] = field(default_factory=list)
+
+    # Flight conditions
+    flight_category: str = ""  # VFR / MVFR / IFR / LIFR
+
+    # Weather phenomena
+    wx_string: str = ""  # e.g. "-RA BR" (light rain, mist)
+    wx_description: str = ""
+
+    # Raw
+    raw_metar: str = ""
+
+
+def _cardinal(deg: int | None) -> str:
     if deg is None:
         return ""
     dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
@@ -57,72 +70,161 @@ def _deg_to_cardinal(deg: int | None) -> str:
     return dirs[round(deg / 22.5) % 16]
 
 
-async def get_weather(lat: float, lon: float, icao: str = "") -> WeatherReport:
+def _wx_desc(wx: str) -> str:
+    """Convert METAR weather codes to human readable."""
+    codes = {
+        "-RA": "Light rain", "RA": "Moderate rain", "+RA": "Heavy rain",
+        "-SN": "Light snow", "SN": "Moderate snow", "+SN": "Heavy snow",
+        "-DZ": "Light drizzle", "DZ": "Moderate drizzle",
+        "FG": "Fog", "BR": "Mist", "HZ": "Haze", "FU": "Smoke",
+        "TS": "Thunderstorm", "+TSRA": "Thunderstorm with heavy rain",
+        "SH": "Showers", "-SHRA": "Light rain showers",
+        "BC": "Patches", "PR": "Partial", "MI": "Shallow",
+        "BL": "Blowing", "DR": "Low-drift", "FZ": "Freezing",
+        "SQ": "Squall", "FC": "Funnel cloud", "SS": "Sandstorm",
+    }
+    parts = []
+    for code in wx.split():
+        if code in codes:
+            parts.append(codes[code])
+        elif code.startswith("+") and code[1:] in codes:
+            parts.append("Heavy " + codes[code[1:]])
+        elif code.startswith("-") and code[1:] in codes:
+            parts.append("Light " + codes[code[1:]])
+        else:
+            parts.append(code)
+    return ", ".join(parts) if parts else wx
+
+
+async def get_metar(icao: str) -> AviationWeather:
     """
-    Fetch current weather conditions from Open-Meteo.
+    Fetch current METAR for an airport from AviationWeather.gov.
 
     Args:
-        lat: Decimal latitude
-        lon: Decimal longitude
-        icao: ICAO code (for logging/display)
+        icao: ICAO code (e.g. 'KMIA', 'MYNN')
 
     Returns:
-        WeatherReport with current conditions, or error field.
+        AviationWeather with METAR data or error field.
     """
-    report = WeatherReport(icao=icao)
+    report = AviationWeather(icao=icao.upper())
 
     try:
-        params = {
-            "latitude": lat,
-            "longitude": lon,
-            "current": "temperature_2m,weather_code,wind_speed_10m,wind_direction_10m",
-            "wind_speed_unit": "kn",
-            "temperature_unit": "celsius",
-        }
+        params = {"ids": icao.upper(), "format": "json"}
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(OPENMETEO_URL, params=params)
+            resp = await client.get(AVWX_BASE + "metar", params=params)
             resp.raise_for_status()
             data = resp.json()
     except (httpx.HTTPError, httpx.TimeoutException, ValueError) as e:
-        report.error = f"Weather unavailable: {str(e)[:60]}"
+        report.error = f"METAR unavailable: {str(e)[:60]}"
         return report
 
-    current = data.get("current", {})
-    if not current:
-        report.error = "No current weather data returned"
+    if not data or not isinstance(data, list) or len(data) == 0:
+        report.error = f"No METAR data for {icao.upper()}"
         return report
 
-    temp_c = current.get("temperature_2m")
-    if temp_c is not None:
-        report.temperature_c = round(float(temp_c), 1)
-        report.temperature_f = round(float(temp_c) * 9 / 5 + 32, 1)
+    metar = data[0]
+    report.observation_time = metar.get("receiptTime", "") or ""
 
-    code = current.get("weather_code")
-    if code is not None:
-        report.weather_code = int(code)
-        report.weather_desc = WMO_CODES.get(int(code), f"Code {code}")
+    # Temperature
+    tc = metar.get("temp")
+    if tc is not None:
+        report.temp_c = round(float(tc), 1)
+        report.temp_f = round(float(tc) * 9 / 5 + 32, 1)
 
-    wind_kts = current.get("wind_speed_10m")
-    if wind_kts is not None:
-        report.wind_speed_kts = round(float(wind_kts), 1)
+    dp = metar.get("dewp")
+    if dp is not None:
+        report.dewpoint_c = round(float(dp), 1)
 
-    wind_dir = current.get("wind_direction_10m")
-    if wind_dir is not None:
-        report.wind_direction_deg = int(wind_dir)
-        report.wind_direction_str = _deg_to_cardinal(int(wind_dir))
+    # Wind
+    raw_wdir = metar.get("wdir")
+    report.wind_dir_deg = int(raw_wdir) if isinstance(raw_wdir, (int, float)) else None
+    report.wind_speed_kt = metar.get("wspd") or None
+    report.wind_gust_kt = metar.get("wgst") or None
+    report.wind_direction = _cardinal(report.wind_dir_deg)
+
+    # Visibility
+    vis = metar.get("visib")
+    if vis is not None:
+        try:
+            report.visibility_statute_mi = round(float(str(vis).replace("+", "").replace(">", "")), 1)
+            report.visibility_km = round(report.visibility_statute_mi * 1.609, 1)
+        except (ValueError, TypeError):
+            report.visibility_statute_mi = 10.0
+
+    # Pressure
+    alt = metar.get("altim")
+    if alt is not None:
+        report.altimeter_in_hg = round(float(alt) * 0.02953, 2) if float(alt) > 100 else round(float(alt), 2)
+        report.altimeter_mb = round(float(alt), 1)
+
+    # Sky conditions
+    report.sky_cover = metar.get("cover", "")
+    clouds = metar.get("clouds", [])
+    if clouds:
+        report.sky_conditions = [
+            f"{c.get('cover','')}@{c.get('base','?')}ft"
+            for c in (clouds if isinstance(clouds, list) else [])
+        ]
+        # Find ceiling (lowest BKN/OVC layer)
+        ceilings = [c.get('base') for c in clouds if c.get('cover') in ('BKN', 'OVC', 'IND')]
+        if ceilings:
+            report.sky_ceiling_ft = min(ceilings)
+
+    # Flight category
+    wxc = metar.get("fltCat", "")
+    if wxc:
+        report.flight_category = wxc.upper()
+
+    # Weather phenomena
+    raw = metar.get("rawOb", "")
+    report.raw_metar = raw
+    wx_parts = metar.get("wxString", "")
+    if wx_parts:
+        report.wx_string = wx_parts
+        report.wx_description = _wx_desc(wx_parts)
 
     return report
 
 
-def weather_to_dict(report: WeatherReport) -> dict[str, Any]:
+async def get_taf(icao: str) -> str:
+    """
+    Fetch the raw TAF text for an airport.
+
+    Returns the TAF text or an error message.
+    """
+    try:
+        params = {"ids": icao.upper(), "format": "raw"}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(AVWX_BASE + "taf", params=params)
+            resp.raise_for_status()
+            return resp.text.strip()
+    except Exception as e:
+        return f"TAF unavailable: {str(e)[:60]}"
+
+
+def weather_to_dict(wx: AviationWeather) -> dict[str, Any]:
     """Convert to JSON-serializable dict."""
     return {
-        "icao": report.icao,
-        "temperature_c": report.temperature_c,
-        "temperature_f": report.temperature_f,
-        "conditions": report.weather_desc,
-        "wind_speed_kts": report.wind_speed_kts,
-        "wind_direction": report.wind_direction_str if report.wind_direction_str else report.wind_direction_deg,
-        "source": report.source,
-        "error": report.error if report.error else None,
+        "icao": wx.icao,
+        "observation_time": wx.observation_time,
+        "temp_c": wx.temp_c,
+        "temp_f": wx.temp_f,
+        "dewpoint_c": wx.dewpoint_c,
+        "wind_direction_deg": wx.wind_dir_deg,
+        "wind_direction": wx.wind_direction,
+        "wind_speed_kt": wx.wind_speed_kt,
+        "wind_gust_kt": wx.wind_gust_kt,
+        "visibility_statute_mi": wx.visibility_statute_mi,
+        "visibility_km": wx.visibility_km,
+        "altimeter_in_hg": wx.altimeter_in_hg,
+        "altimeter_mb": wx.altimeter_mb,
+        "sky_cover": wx.sky_cover,
+        "sky_ceiling_ft": wx.sky_ceiling_ft,
+        "sky_conditions": wx.sky_conditions,
+        "flight_category": wx.flight_category,
+        "wx_string": wx.wx_string,
+        "wx_description": wx.wx_description,
+        "raw_metar": wx.raw_metar[:200] if wx.raw_metar else "",
+        "source": wx.source,
+        "error": wx.error if wx.error else None,
     }

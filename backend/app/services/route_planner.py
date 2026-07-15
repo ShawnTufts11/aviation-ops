@@ -34,7 +34,7 @@ from app.services.crew_duty import (
     duty_check_to_dict,
     CrewCheckResult,
 )
-from app.services.weather import get_weather, weather_to_dict
+from app.services.weather import get_metar, get_taf, weather_to_dict
 
 if TYPE_CHECKING:
     from app.models.aircraft import Aircraft
@@ -269,7 +269,7 @@ async def plan_route(
                 _flag(leg, f"SECURITY: {r['description']}", critical=False)
 
         # ── Weather ──────────────────────────────────────────────────────
-        wx = await get_weather(destination.latitude, destination.longitude, destination.icao_code)
+        wx = await get_metar(destination.icao_code)
         leg.weather = weather_to_dict(wx)
 
         if leg.block and leg.block.total_block_time_min > 480:
