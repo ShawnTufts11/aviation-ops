@@ -1,8 +1,9 @@
 """
 Airport management endpoints — route planning foundation.
 
-Provides CRUD for the global airport database and a distance calculator
-for use by the mission builder and flight planning services.
+Provides CRUD for the global airport database, auto-lookup from public
+sources, and a distance calculator for use by the mission builder and
+flight planning services.
 """
 
 from __future__ import annotations
@@ -11,12 +12,11 @@ import math
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
 from app.core.permissions import require_org_membership
-from app.core.roles import Role
 from app.models.airport import Airport
 from app.models.user import User
 from app.schemas.airport import (
@@ -24,6 +24,10 @@ from app.schemas.airport import (
     AirportDistanceResponse,
     AirportResponse,
     AirportUpdate,
+)
+from app.services.airport_lookup import (
+    lookup_by_icao,
+    result_to_create_schema,
 )
 
 router = APIRouter(prefix="/airports", tags=["airports"])
@@ -130,6 +134,7 @@ async def create_airport(
         icao_code=icao,
         iata_code=body.iata_code.upper() if body.iata_code else None,
         name=body.name,
+        city=body.city,
         latitude=body.latitude,
         longitude=body.longitude,
         timezone=body.timezone,
@@ -138,13 +143,26 @@ async def create_airport(
         region=body.region,
         longest_runway_ft=body.longest_runway_ft,
         runway_surface=body.runway_surface,
+        runway_info=body.runway_info,
+        has_night_ops=body.has_night_ops,
         has_jet_a=body.has_jet_a,
         has_avgas=body.has_avgas,
+        fuel_price_jet_a_usd=body.fuel_price_jet_a_usd,
+        fuel_price_avgas_usd=body.fuel_price_avgas_usd,
+        fuel_last_updated=body.fuel_last_updated,
         has_customs=body.has_customs,
+        customs_hours=body.customs_hours,
         has_landing_permit_required=body.has_landing_permit_required,
         has_overflight_permit_required=body.has_overflight_permit_required,
         operating_hours=body.operating_hours,
+        fbo_options=body.fbo_options,
+        hotel_options=body.hotel_options,
+        ground_transport=body.ground_transport,
+        maintenance_capability=body.maintenance_capability,
+        restrictions=body.restrictions,
         notes=body.notes,
+        data_source=body.data_source or "manual",
+        last_verified=body.last_verified,
     )
     db.add(airport)
     await db.commit()
@@ -229,3 +247,42 @@ async def calculate_distance(
         distance_nm=distance_nm,
         distance_km=distance_km,
     )
+
+
+# ── Auto-lookup ─────────────────────────────────────────────────────────
+
+
+@router.get("/lookup/{icao_code}")
+async def lookup_airport(
+    icao_code: str,
+    current_user: User = Depends(require_org_membership),
+) -> dict[str, Any]:
+    """
+    Look up an airport by ICAO code from the public OurAirports database.
+
+    Returns mapped data ready for preview and manual override before saving.
+    Fuel prices, FBOs, hotels, and maintenance info are NOT available from
+    the public source — those require manual entry.
+    """
+    result = await lookup_by_icao(icao_code)
+
+    if not result.found:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result.error or f"Airport {icao_code.upper()} not found in public database",
+        )
+
+    return {
+        "found": True,
+        "source": result.source,
+        "data": result_to_create_schema(result),
+        "needs_manual": [
+            "fuel_prices",
+            "fbo_options",
+            "hotel_options",
+            "ground_transport",
+            "maintenance_capability",
+            "runway_info",
+            "has_night_ops",
+        ],
+    }
