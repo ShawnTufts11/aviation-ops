@@ -38,6 +38,11 @@ class LegRequest(BaseModel):
 class RoutePlanRequest(BaseModel):
     aircraft_id: str = Field(..., description="Aircraft UUID")
     legs: list[LegRequest] = Field(..., min_length=1, max_length=20, description="Route legs in order")
+    passenger_counts: list[int] | None = Field(None, description="Passenger count per leg (optional, for W&B)")
+    cargo_kg: float = Field(0.0, description="Cargo weight in kg (same for all legs)")
+    crew_count: int = Field(2, description="Number of crew members")
+    is_two_pilot: bool = Field(True, description="True for 2-pilot crew, False for 1-pilot")
+    crew_members: list[dict] | None = Field(None, description="Optional crew info for duty time checks")
 
 
 # ── Plan endpoint ──────────────────────────────────────────────────────
@@ -92,7 +97,15 @@ async def plan_route_endpoint(
         ))
 
     # ── Plan the route ───────────────────────────────────────────────────
-    route_plan = await plan_route(aircraft, resolved_legs)
+    route_plan = await plan_route(
+        aircraft=aircraft,
+        legs=resolved_legs,
+        passenger_counts=body.passenger_counts,
+        cargo_kg=body.cargo_kg,
+        crew_count=body.crew_count,
+        is_two_pilot=body.is_two_pilot,
+        crew_members=body.crew_members,
+    )
     result = route_plan_to_dict(route_plan)
 
     return {

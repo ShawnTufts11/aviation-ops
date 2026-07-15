@@ -1,12 +1,15 @@
 """
 Route planner — the integration layer that ties aircraft performance, airport
-data, and operational intelligence into a complete mission planning package.
+data, weight & balance, and crew duty compliance into a complete mission
+planning package.
 
 This is the core "brain" that the mission builder calls. Given an aircraft
 and a list of legs, it returns:
   - Per-leg: distance, block time, fuel burn, capabilities check
   - Per-destination: FBOs, hotels, fuel prices, customs, MRO, restrictions
-  - Mission totals: time, fuel, distance, flags
+  - Weight & Balance: per-leg loading analysis
+  - Crew Duty Time: FAR 135.267 compliance check
+  - Mission totals: time, fuel, distance, critical flags
 """
 
 from __future__ import annotations
@@ -20,6 +23,16 @@ from app.services.flight_performance import (
     check_capabilities,
     BlockEstimate,
     AircraftCapabilities,
+)
+from app.services.weight_balance import (
+    calculate_leg_wb,
+    wb_to_dict,
+    WeightBalanceReport,
+)
+from app.services.crew_duty import (
+    check_crew_duty,
+    duty_check_to_dict,
+    CrewCheckResult,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +57,7 @@ class LegPlan:
     distance_nm: float = 0.0
     block: BlockEstimate | None = None
     capabilities: AircraftCapabilities | None = None
+    wb: WeightBalanceReport | None = None
 
     # Destination intelligence
     fbo_count: int = 0
@@ -78,6 +92,7 @@ class RoutePlan:
     aircraft_range: int = 0
 
     legs: list[LegPlan] = field(default_factory=list)
+    crew_duty: CrewCheckResult | None = None
 
     total_distance_nm: float = 0.0
     total_block_time_min: int = 0
@@ -103,6 +118,11 @@ def _flag(leg: LegPlan, message: str, critical: bool = False) -> None:
 async def plan_route(
     aircraft: Aircraft,
     legs: list[tuple[Airport, Airport, int | None]],
+    passenger_counts: list[int] | None = None,
+    cargo_kg: float = 0.0,
+    crew_count: int = 2,
+    is_two_pilot: bool = True,
+    crew_members: list[dict[str, Any]] | None = None,
 ) -> RoutePlan:
     """
     Plan a multi-leg route for a given aircraft.
@@ -110,9 +130,14 @@ async def plan_route(
     Args:
         aircraft: The Aircraft model instance (with performance data)
         legs: List of (origin_airport, destination_airport, cruise_altitude_ft) tuples
+        passenger_counts: Optional passenger count per leg (for W&B)
+        cargo_kg: Cargo weight in kg (same for all legs)
+        crew_count: Number of crew
+        is_two_pilot: True for 2-pilot crew, False for 1-pilot
+        crew_members: Optional crew info for duty time checks
 
     Returns:
-        RoutePlan with per-leg details and mission totals
+        RoutePlan with per-leg details, mission totals, W&B, and crew duty
     """
     plan = RoutePlan(
         aircraft_tail=aircraft.tail_number,
@@ -127,6 +152,8 @@ async def plan_route(
     total_flight_min = 0
 
     for idx, (origin, destination, cruise_alt) in enumerate(legs):
+        pax_count = (passenger_counts or [0] * len(legs))[idx]
+
         leg = LegPlan(
             leg_index=idx + 1,
             origin_icao=origin.icao_code,
@@ -137,7 +164,7 @@ async def plan_route(
         )
 
         # ── Distance ──────────────────────────────────────────────────────
-        dist_nm, dist_km, _ = haversine_radians(
+        dist_nm, _, _ = haversine_radians(
             origin.latitude, origin.longitude,
             destination.latitude, destination.longitude,
         )
@@ -150,7 +177,6 @@ async def plan_route(
         total_block_min += block.total_block_time_min
         total_fuel += block.total_fuel_gal
 
-        # Flight time (not including taxi) — for duty day calculation later
         flight_min = block.climb_time_min + block.cruise_time_min + block.descent_time_min
         total_flight_min += flight_min
 
@@ -167,14 +193,36 @@ async def plan_route(
                 _flag(leg, r, critical=True)
 
         if caps.overwater_required and not caps.overwater_capable:
-            _flag(leg, "Aircraft not equipped for overwater — life rafts/ELT required", critical=True)
+            _flag(leg, "Aircraft not equipped for overwater", critical=True)
 
         if caps.icing_possible and not caps.icing_certified:
             _flag(leg, "Known icing possible — aircraft not certified", critical=False)
-            plan.warnings.append(f"Leg {leg.leg_index} ({origin.icao_code}→{destination.icao_code}): icing risk")
+            plan.warnings.append(f"Leg {leg.leg_index}: icing risk")
 
         if not caps.rnp_capable and caps.rnp_required:
-            _flag(leg, f"RNP approach required at {destination.icao_code} — aircraft not capable", critical=True)
+            _flag(leg, f"RNP required at {destination.icao_code} — not RNP capable", critical=True)
+
+        # ── Weight & Balance ──────────────────────────────────────────────
+        wb = await calculate_leg_wb(
+            aircraft=aircraft,
+            origin=origin.icao_code,
+            destination=destination.icao_code,
+            leg_index=leg.leg_index,
+            passenger_count=pax_count,
+            cargo_kg=cargo_kg,
+            fuel_gal=block.total_fuel_gal,
+            fuel_burn_gal=block.cruise_fuel_gal + block.climb_fuel_gal + block.descent_fuel_gal,
+            taxi_fuel_gal=block.taxi_fuel_gal,
+            crew_count=crew_count,
+        )
+        leg.wb = wb
+
+        if wb.overall_status == "over_limit":
+            for note in wb.notes:
+                _flag(leg, f"W&B: {note}", critical=True)
+        elif wb.overall_status == "warning":
+            for note in wb.notes:
+                _flag(leg, f"W&B: {note}", critical=False)
 
         # ── Destination intelligence ──────────────────────────────────────
         leg.fbo_options = destination.fbo_options or []
@@ -203,35 +251,24 @@ async def plan_route(
         # ── Per-leg flags ─────────────────────────────────────────────────
         if destination.has_landing_permit_required:
             _flag(leg, f"Landing permit required at {destination.icao_code}", critical=True)
-
         if destination.has_overflight_permit_required:
-            _flag(leg, f"Overflight permit required for {destination.country_code} airspace", critical=True)
-
-        if not destination.has_night_ops and not _is_daylight_leg(leg, destination):
-            _flag(leg, f"No night ops at {destination.icao_code} — plan daylight arrival", critical=True)
-
+            _flag(leg, f"Overflight permit for {destination.country_code} airspace", critical=True)
+        if not destination.has_night_ops:
+            _flag(leg, f"No night ops at {destination.icao_code}", critical=True)
         if destination.operating_hours and "sunrise" in destination.operating_hours.lower():
-            _flag(leg, f"Limited operating hours: {destination.operating_hours}", critical=False)
-
+            _flag(leg, f"Limited hours: {destination.operating_hours}", critical=False)
         if not destination.has_jet_a and not destination.has_avgas:
-            _flag(leg, f"No fuel available at {destination.icao_code}", critical=True)
+            _flag(leg, f"No fuel at {destination.icao_code}", critical=True)
+        if not destination.has_jet_a and aircraft.cruise_fuel_flow_gph:
+            _flag(leg, f"No Jet-A at {destination.icao_code}", critical=True)
 
-        if not destination.has_jet_a and aircraft.cruise_fuel_flow_gph and aircraft.cruise_fuel_flow_gph > 0:
-            _flag(leg, f"No Jet-A available at {destination.icao_code} — fuel stop may be needed", critical=True)
-
-        # ── Security / safety notes ───────────────────────────────────────
         for r in leg.restrictions:
             if r.get("type") == "security":
                 _flag(leg, f"SECURITY: {r['description']}", critical=False)
 
         if leg.block and leg.block.total_block_time_min > 480:
-            _flag(leg, f"Leg exceeds 8 hours block time — crew rest required", critical=True)
+            _flag(leg, "Leg exceeds 8hr — crew rest required", critical=True)
             plan.overnight_required = True
-
-        if leg.block and leg.block.total_block_time_min > 120 and idx < len(legs) - 1:
-            _flag(leg, "Crew change possible at this stop", critical=False)
-            if idx > 0:
-                plan.crew_swap_required = True
 
         plan.legs.append(leg)
 
@@ -242,32 +279,40 @@ async def plan_route(
     plan.total_fuel_gal = round(total_fuel, 1)
     plan.total_flight_time_min = total_flight_min
 
+    # ── Crew duty time ────────────────────────────────────────────────────
+    plan.crew_duty = await check_crew_duty(
+        mission_flight_time_hrs=round(total_flight_min / 60, 2),
+        is_two_pilot=is_two_pilot,
+        crew_members=crew_members,
+    )
+
+    if plan.crew_duty and not plan.crew_duty.mission_legal:
+        for v in plan.crew_duty.mission_violations:
+            plan.critical_flags.append(f"CREW DUTY: {v}")
+
     # ── Mission-level flags ───────────────────────────────────────────────
     if plan.total_block_hours > 12:
         plan.overnight_required = True
         plan.critical_flags.append(
-            f"Total mission time ({plan.total_block_hours}hrs) exceeds 12-hour duty day — overnight required"
+            f"Mission ({plan.total_block_hours}hrs) exceeds 12hr — overnight required"
         )
 
-    if plan.total_block_hours > 8 and not plan.crew_swap_required:
+    if plan.total_block_hours > 8:
         plan.crew_swap_required = True
-        plan.critical_flags.append(
-            f"Mission exceeds 8 hours — crew swap recommended at midpoint"
-        )
+        if not any("crew swap" in f.lower() for f in plan.critical_flags):
+            plan.critical_flags.append(
+                f"Mission exceeds 8hr — crew swap recommended"
+            )
 
     if plan.fuel_stop_required:
-        plan.warnings.append("Aircraft range insufficient for non-stop mission — fuel stop required")
+        plan.warnings.append("Fuel stop required — insufficient range for non-stop mission")
 
     return plan
 
 
 def _is_daylight_leg(leg: LegPlan, destination: Airport) -> bool:
-    """
-    Rough check if a leg will arrive in daylight.
-    Simplified — assumes arrival within a few hours of departure.
-    Real implementation would use timezone-aware sunset/sunrise data.
-    """
-    return False  # Conservative: assume night arrival unless proven otherwise
+    """Conservative night-arrival assumption. Replace with sunrise/sunset calc."""
+    return False
 
 
 def route_plan_to_dict(plan: RoutePlan) -> dict[str, Any]:
@@ -295,6 +340,7 @@ def route_plan_to_dict(plan: RoutePlan) -> dict[str, Any]:
                 "note": leg.block.note if leg.block else "",
                 "capabilities_ok": leg.capabilities.can_operate_leg if leg.capabilities else True,
                 "capability_restrictions": leg.capabilities.restrictions if leg.capabilities else [],
+                "weight_balance": wb_to_dict(leg.wb) if leg.wb else None,
                 "flags": leg.flags,
                 "is_ok": leg.is_ok,
                 "destination_intel": {
@@ -343,6 +389,7 @@ def route_plan_to_dict(plan: RoutePlan) -> dict[str, Any]:
             "total_fuel_gal": plan.total_fuel_gal,
             "total_flight_time_min": plan.total_flight_time_min,
         },
+        "crew_duty": duty_check_to_dict(plan.crew_duty) if plan.crew_duty else None,
         "flags": {
             "overnight_required": plan.overnight_required,
             "crew_swap_required": plan.crew_swap_required,
