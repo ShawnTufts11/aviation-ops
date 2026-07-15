@@ -34,6 +34,7 @@ from app.services.crew_duty import (
     duty_check_to_dict,
     CrewCheckResult,
 )
+from app.services.weather import get_weather, weather_to_dict
 
 if TYPE_CHECKING:
     from app.models.aircraft import Aircraft
@@ -76,6 +77,7 @@ class LegPlan:
     has_overflight_permit: bool = False
     restrictions: list[dict] = field(default_factory=list)
     notes: str = ""
+    weather: dict | None = None
 
     # Flags
     flags: list[str] = field(default_factory=list)
@@ -266,6 +268,10 @@ async def plan_route(
             if r.get("type") == "security":
                 _flag(leg, f"SECURITY: {r['description']}", critical=False)
 
+        # ── Weather ──────────────────────────────────────────────────────
+        wx = await get_weather(destination.latitude, destination.longitude, destination.icao_code)
+        leg.weather = weather_to_dict(wx)
+
         if leg.block and leg.block.total_block_time_min > 480:
             _flag(leg, "Leg exceeds 8hr — crew rest required", critical=True)
             plan.overnight_required = True
@@ -378,6 +384,7 @@ def route_plan_to_dict(plan: RoutePlan) -> dict[str, Any]:
                     "overflight_permit_required": leg.has_overflight_permit,
                     "restrictions": leg.restrictions,
                     "notes": leg.notes,
+                    "weather": leg.weather,
                 },
             }
             for leg in plan.legs

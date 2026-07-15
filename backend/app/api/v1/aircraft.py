@@ -15,6 +15,7 @@ from app.core.audit import log_action
 from app.core.permissions import require_org_membership, require_role
 from app.core.roles import Role
 from app.models.aircraft import Aircraft, AircraftComponent
+from app.models.maintenance import MaintenanceTask
 from app.models.user import User
 from app.schemas.aircraft import (
     AircraftCreate,
@@ -23,6 +24,7 @@ from app.schemas.aircraft import (
     ComponentCreate,
     ComponentResponse,
 )
+from app.services.ad_compliance import check_aircraft_compliance, ad_status_to_dict
 
 router = APIRouter(prefix="/aircraft", tags=["aircraft"])
 
@@ -273,3 +275,39 @@ async def add_component(
     await db.commit()
     await db.refresh(component)
     return ComponentResponse.model_validate(component)
+
+
+# ── AD/SB compliance ──────────────────────────────────────────────────
+
+
+@router.get("/{aircraft_id}/ad-compliance")
+async def get_aircraft_ad_compliance(
+    aircraft_id: str,
+    current_user: User = Depends(require_org_membership),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Check AD/SB compliance status for an aircraft."""
+    aircraft = await db.get(Aircraft, aircraft_id)
+    if not aircraft or aircraft.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="Aircraft not found")
+
+    # Get completed AD/SB records from maintenance tasks
+    result = await db.execute(
+        select(MaintenanceTask).where(
+            MaintenanceTask.aircraft_id == aircraft_id,
+            MaintenanceTask.task_type.in_(["ad", "sb"]),
+            MaintenanceTask.organization_id == current_user.organization_id,
+        )
+    )
+    compliance_records = []
+    for task in result.scalars().all():
+        compliance_records.append({
+            "reference": task.reference or "",
+            "status": task.status.value if hasattr(task.status, 'value') else task.status,
+            "completed_date": task.completed_date,
+            "completed_hours": task.completed_hours,
+            "completed_cycles": task.completed_cycles,
+        })
+
+    status = await check_aircraft_compliance(aircraft, compliance_records)
+    return ad_status_to_dict(status)

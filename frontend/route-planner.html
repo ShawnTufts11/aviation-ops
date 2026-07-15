@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ParaRig Ops — Route Planner</title>
+<style>
+  :root { --bg: #0f1117; --card: #1a1d28; --border: #2a2d3a; --text: #e1e4eb; --text-dim: #8b8fa3; --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 24px; line-height: 1.5; }
+  h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 4px; color: var(--text); }
+  .subtitle { color: var(--text-dim); font-size: 0.875rem; margin-bottom: 24px; }
+  .login-card, .plan-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; max-width: 840px; }
+  .login-card h2 { font-size: 1.1rem; margin-bottom: 12px; }
+  .row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: end; }
+  label { font-size: 0.8rem; color: var(--text-dim); display: block; margin-bottom: 4px; }
+  input, select, textarea { background: #0f1117; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 0.875rem; }
+  input:focus, select:focus { outline: none; border-color: var(--blue); }
+  button { background: var(--blue); color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 0.875rem; cursor: pointer; font-weight: 500; transition: opacity .15s; }
+  button:hover { opacity: .85; }
+  button:disabled { opacity: .4; cursor: wait; }
+  .leg-card { background: #0f1117; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .leg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .leg-route { font-weight: 600; font-size: 1rem; }
+  .leg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 8px 0; }
+  .stat { background: var(--bg); padding: 8px 12px; border-radius: 6px; }
+  .stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; }
+  .stat-value { font-size: 1rem; font-weight: 600; }
+  .intel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-top: 8px; }
+  .intel-item { background: var(--bg); padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; }
+  .intel-item strong { display: block; font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 2px; }
+  .flag { font-size: 0.78rem; padding: 2px 8px; border-radius: 4px; display: inline-block; margin: 2px; }
+  .flag-ok { background: rgba(34,197,94,.15); color: var(--green); }
+  .flag-warn { background: rgba(234,179,8,.15); color: var(--yellow); }
+  .flag-critical { background: rgba(239,68,68,.15); color: var(--red); }
+  .totals { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
+  .total-item { text-align: center; }
+  .total-value { font-size: 1.3rem; font-weight: 700; }
+  .total-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; }
+  .crew-duty { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-top: 12px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+  .badge-ok { background: rgba(34,197,64,.15); color: var(--green); }
+  .badge-warn { background: rgba(234,179,8,.15); color: var(--yellow); }
+  .badge-critical { background: rgba(239,68,68,.15); color: var(--red); }
+  .error-msg { color: var(--red); padding: 8px; background: rgba(239,68,68,.1); border-radius: 6px; margin-top: 8px; }
+  .flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .mt-8 { margin-top: 8px; }
+  .mb-8 { margin-bottom: 8px; }
+  .text-dim { color: var(--text-dim); }
+  .weather { display: inline-flex; align-items: center; gap: 6px; }
+  .wings { color: var(--text-dim); font-size: 0.75rem; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<h1>✈️ ParaRig Ops — Route Planner</h1>
+<div class="wings">5-leg Caribbean demo | King Air 350 | MYNN → MIA → Cancun → Haiti → Cuba → Nassau</div>
+
+<div class="login-card">
+  <h2>🔑 Log in</h2>
+  <div class="row">
+    <div><label>Email</label><input type="email" id="email" value="shawn@pararig.com" style="width:220px"></div>
+    <div><label>Password</label><input type="password" id="password" value="ParaRig2026!" style="width:180px"></div>
+    <div><label>API URL</label><input type="text" id="apiUrl" value="http://localhost:8100" style="width:200px"></div>
+    <div style="padding-top:18px"><button onclick="login()">Login</button></div>
+  </div>
+  <div id="loginStatus" class="text-dim" style="font-size:0.8rem;margin-top:4px">Not logged in</div>
+</div>
+
+<div class="plan-card" id="planCard" style="display:none">
+  <div class="flex mb-8">
+    <h2>🛩️ Route Plan</h2>
+    <button onclick="planRoute()">Run Route Plan</button>
+    <span id="acInfo" class="text-dim" style="font-size:0.85rem"></span>
+  </div>
+  <div id="loading" style="display:none; color: var(--text-dim);">Calculating...</div>
+  <div id="error" class="error-msg" style="display:none"></div>
+  <div id="results"></div>
+</div>
+
+<script>
+let TOKEN = null;
+let API = 'http://localhost:8100';
+let AIRCRAFT_ID = null;
+
+async function login() {
+  const email = document.getElementById('email').value;
+  const pw = document.getElementById('password').value;
+  API = document.getElementById('apiUrl').value.replace(/\/+$/, '');
+  document.getElementById('loginStatus').textContent = 'Logging in...';
+  
+  try {
+    const r = await fetch(`${API}/api/v1/auth/login`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email, password: pw})
+    });
+    const d = await r.json();
+    if (!d.access_token) { document.getElementById('loginStatus').textContent = 'Login failed: ' + (d.detail || 'unknown'); return; }
+    TOKEN = d.access_token;
+    document.getElementById('loginStatus').innerHTML = '✅ Logged in as <b>' + (d.user?.display_name || email) + '</b>';
+    
+    // Fetch aircraft
+    const ar = await fetch(`${API}/api/v1/aircraft`, {headers: {'Authorization': 'Bearer '+TOKEN}});
+    const acd = await ar.json();
+    const ka = acd.data.find(a => a.model.includes('350'));
+    if (ka) {
+      AIRCRAFT_ID = ka.id;
+      document.getElementById('acInfo').textContent = ka.tail_number + ' — ' + ka.make + ' ' + ka.model;
+    }
+    document.getElementById('planCard').style.display = 'block';
+    planRoute();
+  } catch(e) {
+    document.getElementById('loginStatus').textContent = 'Connection error: ' + e.message;
+  }
+}
+
+async function planRoute() {
+  const results = document.getElementById('results');
+  const loading = document.getElementById('loading');
+  const error = document.getElementById('error');
+  loading.style.display = 'block';
+  error.style.display = 'none';
+  results.innerHTML = '';
+  
+  try {
+    const r = await fetch(`${API}/api/v1/routes/plan`, {
+      method: 'POST', headers: {'Content-Type':'application/json', 'Authorization': 'Bearer '+TOKEN},
+      body: JSON.stringify({
+        aircraft_id: AIRCRAFT_ID,
+        legs: [
+          {origin:"MYNN", destination:"KMIA", cruise_altitude_ft:28000},
+          {origin:"KMIA", destination:"MMUN", cruise_altitude_ft:28000},
+          {origin:"MMUN", destination:"MTPP", cruise_altitude_ft:28000},
+          {origin:"MTPP", destination:"MUHA", cruise_altitude_ft:28000},
+          {origin:"MUHA", destination:"MYNN", cruise_altitude_ft:28000}
+        ],
+        passenger_counts: [8, 6, 4, 4, 6],
+        cargo_kg: 200, crew_count: 2, is_two_pilot: true
+      })
+    });
+    const data = await r.json();
+    loading.style.display = 'none';
+    if (!r.ok) { error.textContent = 'Error: ' + JSON.stringify(data); error.style.display = 'block'; return; }
+    
+    const plan = data.plan;
+    let html = '';
+    
+    // Legs
+    for (const leg of plan.legs) {
+      const wb = leg.weight_balance || {};
+      const m = wb.margins || {};
+      const di = leg.destination_intel || {};
+      const wx = di.weather || {};
+      const wbOk = wb.overall_status !== 'over_limit';
+      
+      html += `<div class="leg-card">
+        <div class="leg-header">
+          <span class="leg-route">${leg.is_ok && wbOk ? '✅' : '⚠️'} Leg ${leg.leg}: ${leg.origin} → ${leg.destination}</span>
+          <span class="text-dim" style="font-size:0.8rem">${leg.destination_city}</span>
+        </div>
+        <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:8px">${leg.origin_name} → ${leg.destination_name}</div>
+        <div class="leg-stats">
+          <div class="stat"><div class="stat-label">Distance</div><div class="stat-value">${leg.distance_nm}nm</div></div>
+          <div class="stat"><div class="stat-label">Block Time</div><div class="stat-value">${leg.block_time_hrs}hrs</div></div>
+          <div class="stat"><div class="stat-label">Fuel</div><div class="stat-value">${leg.fuel_gal}gal</div></div>
+          ${wb.weights ? `<div class="stat"><div class="stat-label">TOW/MTOW</div><div class="stat-value">${Math.round(wb.weights.takeoff_kg)}/${wb.limits.mtow_kg}kg</div></div>` : ''}
+          ${m.mtow_status ? `<div class="stat"><div class="stat-label">${m.mtow_status === 'over_limit' ? '🔴' : m.mtow_status === 'warning' ? '🟡' : '✅'} Status</div><div class="stat-value">${m.mtow_margin_kg}kg margin</div></div>` : ''}
+        </div>
+        <div class="intel-grid">
+          ${di.fbo_count ? `<div class="intel-item"><strong>FBOs (${di.fbo_count})</strong>${di.fbo_options.slice(0,2).map(f => f.name).join('<br>')}${di.fbo_options.length > 2 ? `<br><span class="text-dim">+${di.fbo_options.length-2} more</span>` : ''}</div>` : ''}
+          ${di.fuel_price_jet_a ? `<div class="intel-item"><strong>Jet-A</strong>$${di.fuel_price_jet_a}/gal</div>` : ''}
+          ${di.hotel_count ? `<div class="intel-item"><strong>Hotels (${di.hotel_count})</strong>${di.hotel_options.slice(0,2).map(h => h.name).join('<br>')}</div>` : ''}
+          ${di.has_customs ? `<div class="intel-item"><strong>Customs</strong>${di.customs_hours || 'Available'}</div>` : ''}
+          ${di.has_mro ? `<div class="intel-item"><strong>MRO</strong>${di.maintenance_notes || 'On-site'}</div>` : ''}
+          ${wx.temperature_f ? `<div class="intel-item"><strong>Weather</strong><span class="weather">${wx.conditions || ''} ${wx.temperature_f}°F wind ${wx.wind_speed_kts || '?'}kt</span></div>` : ''}
+        </div>
+        ${leg.flags.length ? `<div class="mt-8">${leg.flags.map(f => `<span class="flag ${f.startsWith('SECURITY') ? 'flag-warn' : f.includes('permit') || f.includes('required') ? 'flag-critical' : 'flag-ok'}">${f}</span>`).join('')}</div>` : ''}
+      </div>`;
+    }
+    
+    // Totals
+    const t = plan.totals;
+    html += `<div class="totals">
+      <div class="total-item"><div class="total-value">${t.total_distance_nm}nm</div><div class="total-label">Total Distance</div></div>
+      <div class="total-item"><div class="total-value">${t.total_block_hours}hrs</div><div class="total-label">Block Time</div></div>
+      <div class="total-item"><div class="total-value">${t.total_fuel_gal}gal</div><div class="total-label">Total Fuel</div></div>
+    </div>`;
+    
+    // Crew duty
+    const cd = plan.crew_duty;
+    if (cd) {
+      html += `<div class="crew-duty">
+        <strong>👨‍✈️ Crew Duty: ${cd.mission_legal ? '✅ LEGAL' : '🔴 VIOLATION'}</strong> &mdash;
+        ${cd.is_two_pilot ? '2-pilot' : '1-pilot'} crew |
+        Flight: ${cd.crew[0].duty.flight_time_hours}hrs /
+        Duty: ${cd.crew[0].duty.duty_period_hours}hrs / 14hr limit
+        ${cd.mission_violations.length ? '<br>' + cd.mission_violations.map(v => `<span class="flag flag-critical">${v}</span>`).join('') : ''}
+      </div>`;
+    }
+    
+    // Mission flags
+    const f = plan.flags;
+    if (f.critical.length) {
+      html += `<div class="crew-duty">${f.critical.map(c => `<div><span class="flag flag-critical">🔴 ${c}</span></div>`).join('')}</div>`;
+    }
+    
+    results.innerHTML = html;
+  } catch(e) {
+    loading.style.display = 'none';
+    error.textContent = 'Request failed: ' + e.message;
+    error.style.display = 'block';
+  }
+}
+</script>
+</body>
+</html>
