@@ -2,8 +2,8 @@
 
 **Project:** Aviation Operations Management System (Ops VP)
 **Client:** ParaRig Dynamics / Private Aviation Operation (Nassau ↔ Haiti)
-**Version:** 1.0 — Blueprint
-**Date:** 2026-07-14
+**Version:** 2.0 — Built & Operational
+**Date:** 2026-07-24
 **Author:** Hermes (The Citadel) + Grok + Shawn
 
 ---
@@ -14,7 +14,7 @@ A white-label, turnkey aviation management suite that feels modern and intuitive
 
 **Core philosophy:** A pilot should be able to log their flight, a mechanic should see the inspection due, the Ops VP should see the P&L, and the compliance officer should see the upcoming renewal — all from the same system, in real time, without spreadsheets or sticky notes.
 
-**Business model:** Dual-track — self-hosted license for operators who want on-prem control, SaaS subscription for those who don't. White-label ready.
+**Current status:** All Phase 1 modules are **built and operational**. The system is running on SQLite (dev) with production readiness for PostgreSQL. The spec has been signed off; the focus has shifted to hardening, testing, and polish.
 
 ---
 
@@ -25,19 +25,18 @@ A white-label, turnkey aviation management suite that feels modern and intuitive
 | Layer | Technology | Rationale |
 |-------|-----------|-----------|
 | **Backend** | FastAPI (Python 3.12+) | Async, auto-OpenAPI, fast to build, easy to audit |
-| **Database** | PostgreSQL 16 (primary) / SQLite (dev/demo fallback) | SQLite for single-user dev, PG for production multi-user |
+| **Database** | PostgreSQL 16 (production) / SQLite (dev/demo fallback) | SQLite for single-user dev, PG for production multi-user |
 | **ORM** | SQLAlchemy 2.0 + Alembic | Mature, async-ready, migration-driven schema |
 | **Frontend** | React 18 + TypeScript + Tailwind CSS 4 | PWA-capable, mobile-first, modern UX |
-| **State / Data** | TanStack Query + Zustand | Server-state caching + lightweight client state |
+| **State / Data** | TanStack React Query | Server-state caching |
 | **UI Components** | shadcn/ui + Radix Primitives | Accessible, composable, Tailwind-native |
 | **Maps** | MapLibre GL (open-source) | Self-hosted tile server option, no Google dependency |
-| **Charts** | Apache ECharts (via echarts-for-react) | Rich charting, self-hostable |
-| **Auth** | FastAPI Users + JWT + MFA (TOTP) | Battle-tested, extendable |
-| **Queue / Async** | Celery + Redis (optional, for heavy PDF gen / notifications) | Not MVP-essential, add when needed |
+| **Auth** | JWT (python-jose) + bcrypt + MFA (TOTP via pyotp) | Battle-tested, extendable |
 | **Container** | Docker + docker-compose | Single `docker compose up` to deploy |
 | **Reverse Proxy** | Caddy (auto-TLS) | Simpler than nginx + certbot, built-in Let's Encrypt |
-| **Fleet Tracking** | ADSB.lol / OpenSky API / optional dump1090 feed | WebSocket-based aircraft position feed |
-| **Payments** | Stripe (for SaaS) | Billing, invoicing, recurring |
+| **Fleet Tracking** | ADSB.lol / OpenSky API | WebSocket-based aircraft position feed |
+| **Weather** | AviationWeather.gov (NOAA/FAA ADDS) | Free, no API key, real aviation METAR/TAF |
+| **NOTAMs** | FAA NMS API (OAuth2) | Free with registration, production FAA NOTAM data |
 
 ### 2.2 High-Level Architecture
 
@@ -49,96 +48,135 @@ A white-label, turnkey aviation management suite that feels modern and intuitive
 │      Frontend        │         Backend API            │
 │   React + Tailwind   │    FastAPI + SQLAlchemy        │
 │   Vite (build)       │    uvicorn (serve)             │
-│   PWA (offline)      │    Celery (background jobs)    │
 ├──────────────────────┴──────────────────────────────┤
 │                 PostgreSQL 16                         │
 │    (or SQLite for single-user / dev mode)             │
-├──────────────────────┬──────────────────────────────┤
-│   Redis (optional)   │     File Storage (S3/Minio)   │
-│   (queue + cache)    │     (docs, logsheets, etc.)   │
-└──────────────────────┴──────────────────────────────┘
+├─────────────────────────────────────────────────────┤
+│   File Storage (local / S3/Minio)                    │
+│   (docs, logsheets, manifests)                       │
+└─────────────────────────────────────────────────────┘
 ```
 
 ### 2.3 Data Flow Principles
 
 1. **Every flight generates a financial record** — auto-calculated cost vs revenue by tail number
-2. **Every maintenance event generates a log entry** — GPS-stamped, user-attributed
+2. **Every maintenance event generates a log entry** — timestamped, user-attributed
 3. **Every document has a reminder** — expiration tracking with configurable lead time
 4. **Every crew member has a currency dashboard** — hours, medicals, training, quals at a glance
 5. **All changes are audited** — immutable audit log with who-did-what-when
 
-### 2.4 Directory Structure
+### 2.4 Directory Structure (Actual)
 
 ```
 pararig-ops/
 ├── backend/
 │   ├── app/
 │   │   ├── api/                    # Route handlers
-│   │   │   ├── v1/
-│   │   │   │   ├── auth.py
-│   │   │   │   ├── aircraft.py
-│   │   │   │   ├── flights.py
-│   │   │   │   ├── maintenance.py
-│   │   │   │   ├── crew.py
-│   │   │   │   ├── compliance.py
-│   │   │   │   ├── finance.py
-│   │   │   │   ├── dashboard.py
-│   │   │   │   ├── documents.py
-│   │   │   │   ├── settings.py
-│   │   │   │   └── scheduling.py
-│   │   │   └── deps.py             # Dependency injection
+│   │   │   ├── v1/                 # 31 route files
+│   │   │   │   ├── auth.py                    # Login, register, MFA, token refresh
+│   │   │   │   ├── aircraft.py                # Aircraft CRUD + components
+│   │   │   │   ├── airports.py                # Airport database lookup (OurAirports)
+│   │   │   │   ├── routes.py                  # Route library + route planner
+│   │   │   │   ├── maintenance.py             # Maintenance tasks CRUD
+│   │   │   │   ├── maintenance_dashboard.py   # Maintenance dashboard (due/overdue)
+│   │   │   │   ├── flights.py                 # Flight CRUD
+│   │   │   │   ├── flight_releases.py         # Part 135 flight release (3-gate signoff)
+│   │   │   │   ├── crew.py                    # Crew member CRUD + qualifications
+│   │   │   │   ├── compliance.py              # Document upload, expiry tracking
+│   │   │   │   ├── comms.py                   # WebSocket notification bus
+│   │   │   │   ├── finance.py                 # P&L, financial records
+│   │   │   │   ├── tracking.py                # ADS-B live tracking
+│   │   │   │   ├── ops_checks.py              # Operational checklists
+│   │   │   │   ├── missions.py                # Multi-leg mission planning
+│   │   │   │   ├── passengers.py              # Passenger management
+│   │   │   │   ├── users.py                   # User management
+│   │   │   │   ├── org_settings.py            # Organization settings
+│   │   │   │   ├── admin.py                   # Admin endpoints (invite, bootstrap)
+│   │   │   │   ├── bulk_import.py             # CSV bulk import
+│   │   │   │   ├── export.py                  # Data export
+│   │   │   │   ├── logbook.py                 # Pilot logbook
+│   │   │   │   ├── reports.py                 # Reporting endpoints
+│   │   │   │   ├── weather_router.py          # Weather / METAR / TAF / NOTAM
+│   │   │   │   ├── costs.py                   # Cost tracking
+│   │   │   │   ├── leg_costs.py               # Per-leg cost logging
+│   │   │   │   ├── briefing.py                # Mission briefing
+│   │   │   │   ├── permissions.py             # Permission introspection
+│   │   │   │   ├── onboarding.py              # Onboarding wizard
+│   │   │   │   └── helpdesk.py                # AI help desk (chat interface)
+│   │   │   └── deps.py                        # Dependency injection (get_db, etc.)
 │   │   ├── core/
-│   │   │   ├── config.py           # Settings from env
-│   │   │   ├── database.py         # SQLAlchemy engine + session
+│   │   │   ├── config.py           # Settings from env (Pydantic Settings)
+│   │   │   ├── database.py         # SQLAlchemy engine + session + init_db
 │   │   │   ├── security.py         # JWT, MFA, password hashing
 │   │   │   ├── audit.py            # Audit log middleware
-│   │   │   └── permissions.py      # RBAC decorators
+│   │   │   ├── permissions.py      # RBAC dependency (require_role, require_feature)
+│   │   │   ├── roles.py            # 11-role FAA Part 135 enum + hierarchy
+│   │   │   └── features.py         # 26-feature permission matrix + resolver
 │   │   ├── models/                 # SQLAlchemy ORM models
-│   │   │   ├── aircraft.py
-│   │   │   ├── flights.py
-│   │   │   ├── maintenance.py
-│   │   │   ├── crew.py
-│   │   │   ├── compliance.py
-│   │   │   ├── finance.py
-│   │   │   ├── documents.py
-│   │   │   ├── scheduling.py
-│   │   │   └── auth.py
+│   │   │   ├── aircraft.py         # Aircraft + AircraftComponent
+│   │   │   ├── airport.py          # Airport database (OurAirports data)
+│   │   │   ├── audit.py            # AuditLog
+│   │   │   ├── crew.py             # CrewMember + CrewQualification
+│   │   │   ├── document.py         # Document (compliance docs)
+│   │   │   ├── finance.py          # FinancialRecord
+│   │   │   ├── flight.py           # Flight + Route
+│   │   │   ├── flight_release.py   # FlightRelease (Part 135 release doc)
+│   │   │   ├── invite.py           # InviteCode
+│   │   │   ├── leg_cost.py         # LegCost (per-leg expenses)
+│   │   │   ├── logbook.py          # LogbookEntry
+│   │   │   ├── maintenance.py      # MaintenanceTask
+│   │   │   ├── mission.py          # Mission, FlightLeg, ManifestEntry
+│   │   │   ├── notification.py     # Notification
+│   │   │   ├── organization.py     # Organization (multi-tenant)
+│   │   │   ├── passenger.py        # Passenger
+│   │   │   └── user.py             # User (with role, MFA, feature_overrides)
 │   │   ├── schemas/                # Pydantic models (request/response)
 │   │   │   ├── aircraft.py
-│   │   │   ├── flights.py
-│   │   │   └── ...
-│   │   ├── services/               # Business logic layer
-│   │   │   ├── flight_costing.py
-│   │   │   ├── maintenance_forecast.py
-│   │   │   ├── duty_time.py
-│   │   │   └── ...
-│   │   └── main.py                 # FastAPI app factory
-│   ├── alembic/                    # Database migrations
+│   │   │   ├── airport.py
+│   │   │   ├── costs.py
+│   │   │   ├── crew.py
+│   │   │   ├── document.py
+│   │   │   ├── flight.py
+│   │   │   ├── leg_costs.py
+│   │   │   ├── maintenance.py
+│   │   │   ├── mfa.py
+│   │   │   ├── mission.py
+│   │   │   └── passenger.py
+│   │   └── services/               # Business logic layer
+│   │       ├── ad_compliance.py    # AD/SB compliance tracker (real ADs for King Air, DHC-6, Basler BT-67)
+│   │       ├── airport_lookup.py   # OurAirports data import + search
+│   │       ├── crew_duty.py        # FAR 135.267/135.271 duty time calculator
+│   │       ├── distance.py         # Haversine distance calculation
+│   │       ├── flight_performance.py  # Block time, fuel burn, capabilities check
+│   │       ├── route_planner.py    # Mission planning integration layer (W&B, crew, weather, NOTAMs)
+│   │       ├── weather.py          # AviationWeather.gov METAR/TAF + FAA NMS NOTAMs
+│   │       └── weight_balance.py   # Per-leg weight & balance analysis
+│   ├── alembic/                    # Database migrations (7+ migration files)
 │   ├── tests/
-│   ├── alembic.ini
+│   │   ├── conftest.py
+│   │   └── test_auth.py
 │   ├── Dockerfile
 │   └── pyproject.toml
 ├── frontend/
 │   ├── src/
-│   │   ├── app/                    # Route pages
-│   │   ├── components/             # Shared UI components
-│   │   ├── features/               # Feature modules
-│   │   │   ├── auth/
-│   │   │   ├── fleet/
-│   │   │   ├── flights/
-│   │   │   ├── maintenance/
-│   │   │   ├── crew/
-│   │   │   ├── compliance/
-│   │   │   ├── finance/
-│   │   │   ├── dashboard/
-│   │   │   └── operations-center/
-│   │   ├── hooks/                  # Custom React hooks
-│   │   ├── lib/                    # Utilities
-│   │   └── types/                  # TypeScript types
-│   ├── public/                     # PWA assets
+│   │   ├── app/                    # Route pages + layout
+│   │   │   ├── layout/            # RootLayout, Sidebar, TopBar
+│   │   │   └── pages/             # 20+ page components
+│   │   ├── components/ui/          # Shared UI (shadcn/ui primitives)
+│   │   ├── features/
+│   │   │   ├── auth/              # AuthContext, AuthGuard, useAuth
+│   │   │   ├── costs/             # Cost logging form + P&L section
+│   │   │   ├── helpdesk/          # AI Help Desk chat panel
+│   │   │   ├── map/               # RouteMap component
+│   │   │   ├── onboarding/        # Onboarding wizard
+│   │   │   └── tracking/          # LiveTrackingMap (ADS-B)
+│   │   ├── lib/                   # API client, utilities
+│   │   └── types/                 # TypeScript types
+│   ├── public/                    # PWA assets
 │   ├── tailwind.config.ts
 │   ├── vite.config.ts
 │   ├── Dockerfile
+│   ├── nginx.conf
 │   └── package.json
 ├── deploy/
 │   ├── docker-compose.yml
@@ -146,13 +184,17 @@ pararig-ops/
 │   ├── .env.example
 │   └── scripts/
 │       ├── seed-data.py            # Demo data generator
-│       └── init-db.sh
+│       ├── seed-comprehensive-demo.py  # Full demo with aircraft, missions, crew
+│       ├── seed-foundation.py       # Foundation seed data
+│       ├── seed-for-user.py         # Per-user seed
+│       ├── seed-test-scenario.py    # Test scenario seed
+│       └── test_caribbean_loop.py   # Caribbean route test
 ├── docs/
 │   ├── SPEC.md                     # This document
-│   ├── API.md                      # Auto-generated from OpenAPI
-│   ├── DEPLOYMENT.md
-│   ├── USER_GUIDE.md
-│   └── WHITELABEL.md
+│   ├── MULTI_LEG_SCOPE.md          # Multi-leg mission scope
+│   ├── SCOPE_FlightRelease.md      # Flight release scope
+│   └── SEED_Mission_CaribbeanLoop.md  # Caribbean loop seed docs
+├── FEATURE_BACKLOG.md              # Collected future feature ideas
 └── README.md
 ```
 
@@ -171,7 +213,6 @@ Organization {
   timezone: string (default: America/Nassau)
   currency: string (default: USD)
   country: string (default: BS)
-  regs: string[] (['FAR-135', 'OTAR', 'EASA', ...])
   is_active: boolean
   settings: JSONB (feature flags, config)
   created_at: datetime
@@ -179,7 +220,7 @@ Organization {
 }
 ```
 
-### 3.2 Users & Roles (RBAC)
+### 3.2 Users & Roles (RBAC — 11-Role FAA Part 135 System)
 
 > **All major entities (Aircraft, Flight, MaintenanceTask, CrewMember, Document, FinancialRecord)
 > are scoped to organization_id. Every query enforces org isolation at the service layer
@@ -193,51 +234,106 @@ User {
   password_hash: string
   display_name: string
   phone: string?
-  role: enum('super_admin', 'ops_manager', 'admin', 'pilot', 'mechanic', 'readonly')
+  role: enum(
+    'accountable_executive',      # CEO — full access
+    'director_of_operations',     # DoO — day-to-day ops authority
+    'director_of_safety',         # DoS — safety oversight
+    'chief_pilot',                # CP — pilot management
+    'director_of_maintenance',    # DOM — maintenance authority
+    'vp_finance',                 # VPF — financial read/write
+    'ops_manager',                # Ops Manager — operational control
+    'dispatcher',                 # DSP — flight releasing
+    'pilot',                      # PLT — flight crew, read-only ops
+    'maintenance_technician',     # MXT — maintenance write access
+    'viewer'                      # VWR — read-only dashboard access
+  )
   is_active: boolean
+  pii_clearance: boolean          # Can view PII (passenger passport, SSN, etc.)
   mfa_enabled: boolean
   mfa_secret: string? (encrypted)
+  feature_overrides: string[]     # Per-user feature grants beyond role
+  permissions_version: integer    # Cache-busting for frontend
   last_login: datetime?
   created_at: datetime
+  updated_at: datetime
 }
-
-Role Hierarchy:
-  super_admin  → full access, manage org, billing
-  ops_manager  → all ops features, manage crew/aircraft/finance
-  admin        → scheduling, documents, compliance
-  pilot        → view assignments, log flights, view own records
-  mechanic     → view/maintain maintenance records, log work
-  readonly     → dashboard viewing only
 ```
+
+**Feature Permission System:** The `app/core/features.py` module defines 26 features across 12 categories (aircraft, flights, maintenance, crew, compliance, finance, admin, safety, routes, passengers, reports, comms), mapped into a `FEATURE_PERMISSION_MATRIX` per role. The `User.feature_overrides` JSON field allows granting specific features beyond a user's role level — this is checked by `check_feature_access()` at enforcement time.
+
+**Role Hierarchy:** Each role has a numeric privilege level (20–100). The `Role.hierarchy()` method and `has_privilege()` comparator enable hierarchical role checks (e.g., "at least OPS_MANAGER level").
+
+**Full Permission Matrix (from app/core/roles.py):**
+
+| Resource                | AE  | DoO | DoS | CP  | DOM | VPF | Ops | Dsp | Plt | MxT | Vwr |
+|------------------------|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
+| Aircraft: Read         | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  |
+| Aircraft: Write        | ✅  | ✅  | ❌  | ✅  | ✅  | ❌  | ✅  | ❌  | ❌  | ❌  | ❌  |
+| Aircraft: Delete       | ✅  | ✅  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  |
+| Flights: Read          | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ❌  | ✅  |
+| Flights: Create        | ✅  | ✅  | ❌  | ✅  | ❌  | ❌  | ✅  | ✅  | ❌  | ❌  | ❌  |
+| Maintenance: Read      | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  |
+| Maintenance: Write     | ✅  | ✅  | ❌  | ✅  | ✅  | ❌  | ✅  | ❌  | ❌  | ✅  | ❌  |
+| Crew: Read             | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ❌  | ✅  |
+| Crew: Write            | ✅  | ✅  | ❌  | ✅  | ❌  | ❌  | ✅  | ❌  | ❌  | ❌  | ❌  |
+| Compliance: Read       | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ✅  | ❌  | ❌  | ✅  |
+| Compliance: Write      | ✅  | ✅  | ✅  | ❌  | ❌  | ❌  | ✅  | ❌  | ❌  | ❌  | ❌  |
+| Finance: Read          | ✅  | ✅  | ✅  | ❌  | ❌  | ✅  | ❌  | ❌  | ❌  | ❌  | ❌  |
+| Finance: Write         | ✅  | ✅  | ❌  | ❌  | ❌  | ✅  | ❌  | ❌  | ❌  | ❌  | ❌  |
+| Admin: Users           | ✅  | ✅  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  |
+| Admin: Settings        | ✅  | ✅  | ✅  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  | ❌  |
+| Safety: Read           | ✅  | ✅  | ✅  | ✅  | ✅  | ❌  | ✅  | ❌  | ❌  | ❌  | ❌  |
+| Safety: Write          | ✅  | ✅  | ✅  | ❌  | ❌  | ❌  | ✅  | ❌  | ❌  | ❌  | ❌  |
+
+(Additional features: routes:plan, routes:view, passengers:read, passengers:write, pii:access, reports:view, export:data, comms:send, comms:view — matrix continues in `app/core/roles.py`)
 
 ### 3.3 Aircraft (Fleet)
 
-```
+```python
+# See also: AircraftComponent (sub-assembly tracking)
 Aircraft {
   id: UUID (PK)
   organization_id: UUID (FK)
-  tail_number: string (e.g. "C6-PRD")
-  serial_number: string?
-  make: string (e.g. "Cessna")
-  model: string (e.g. "208B Grand Caravan")
+  tail_number: string (e.g. "C6-PRD", unique)
+  make: string
+  model: string
   year: integer
-  category: enum('piston', 'turboprop', 'light_jet', 'midsize_jet', 'heavy_jet', 'helicopter')
-  mtow_kg: float?
+  serial_number: string (unique)
+  category: enum(single_engine_piston, multi_engine_piston, single_engine_turboprop,
+                 multi_engine_turboprop, light_jet, midsize_jet, super_midsize_jet,
+                 heavy_jet, rotorcraft)
+  mtow_kg: decimal?, mlw_kg: decimal?, bhw_kg: decimal?
   max_seats: integer
-  max_cargo_kg: float?
-  engines: integer (1 or 2)
-  engine_type: enum('piston', 'turboprop', 'turbofan')
-  current_cycles: integer (airframe)
-  current_hours: float (airframe, hobbs)
-  status: enum('active', 'maintenance', 'grounded', 'ferry', 'retired')
-  base: string (airport code, e.g. "MYNN")
-  home_airport: string
-  country_reg: string (e.g. "BS" or "N" for Bahamas)
+  max_cargo_kg: decimal?
+  fuel_capacity_l: decimal?
+  cruise_speed_kt: integer?
+  cruise_fuel_flow_gph: decimal?
+  climb_speed_kt: integer?, climb_rate_fpm: integer?
+  descent_speed_kt: integer?
+  taxi_fuel_gallons: decimal? (default 5.0)
+  range_nm: integer?, max_range_with_reserves_nm: integer?
+  service_ceiling_ft: integer?
+  reserve_fuel_minutes: integer? (default 45)
+  overwater_capable: boolean
+  known_icing_certified: boolean
+  rnp_approach_capable: boolean
+  rvsm_capable: boolean
+  autopilot_type: string? (none/basic/coupled/fms)
+  deice_equipped: boolean
+  status: enum(active, in_maintenance, grounded, retired, stored)
+  base: string (ICAO)
+  home_airport: string (ICAO)
+  country_reg: string (default: BS)
   registration_expiry: date?
-  insurance_policy: string?
+  airworthiness_expiry: date?
+  coa_expiry: date?
+  insurance_provider: string?
+  insurance_policy_number: string?
   insurance_expiry: date?
-  notes: text?
-  metadata: JSONB (flexible fields per type)
+  insurance_coverage_amount: decimal?
+  total_airframe_hours: decimal?
+  total_cycles: integer?
+  extra_metadata: JSONB
   created_at: datetime
   updated_at: datetime
 }
@@ -249,20 +345,23 @@ Aircraft {
 AircraftComponent {
   id: UUID (PK)
   aircraft_id: UUID (FK)
-  name: string (e.g. "Engine #1 - PT6A-114A")
-  part_number: string?
-  serial_number: string?
-  position: enum('left', 'right', 'apu', 'n/a')
-  component_type: enum('engine', 'propeller', 'landing_gear', 'avionics', 'battery', 'life_vest', 'fire_bottle', 'other')
-  installed_date: date
-  installed_hours: float (airframe hours at install)
-  installed_cycles: integer (airframe cycles at install)
-  tbo_hours: float? (Time Before Overhaul)
-  tbo_cycles: integer?
-  tbo_calendar_days: integer? (e.g. 3650 for 10-year items)
+  organization_id: UUID (FK)
+  name: string
+  part_number: string
+  serial_number: string
+  position: enum(left, right, nose, tail, center, both, n_a)
+  component_type: enum(engine, propeller, landing_gear, battery, avionics, apu, hydraulic, other)
+  installed_date: date?
+  installed_hours: decimal?
+  tbo_hours: decimal?, tbo_cycles: integer?, tbo_calendar_days: integer?
+  hours_since_overhaul: decimal?, cycles_since_overhaul: integer?
   life_limited: boolean
-  status: enum('serviceable', 'overhaul_due', 'expired', 'removed')
+  life_limit_hours: decimal?, life_limit_cycles: integer?
+  status: enum(serviceable, overhaul_due, overhauled, removed, damaged)
+  last_overhaul_date: date?
   notes: text?
+  created_at: datetime
+  updated_at: datetime
 }
 ```
 
@@ -271,27 +370,19 @@ AircraftComponent {
 ```
 MaintenanceTask {
   id: UUID (PK)
+  organization_id: UUID (FK)
   aircraft_id: UUID (FK)
-  component_id: UUID? (FK, nullable for airframe-level tasks)
   title: string
   description: text?
-  task_type: enum('inspection', 'oil_change', 'ad', 'sb', 'overhaul', 'repair', 'annual', '100hr', 'phase')
-  reference: string? (e.g. "AD 2023-08-15", "Cessna SB 208-123")
-  interval_type: enum('hours', 'cycles', 'calendar', 'event')
-  interval_value: float? (e.g. 100 hours)
-  interval_unit: string? (e.g. "hours", "cycles", "days")
-  recurring: boolean
-  requires_faa8130: boolean        # Parts requiring 8130 tag
-  requires_maintenance_release: boolean  # FAR 135 requirement
-  status: enum('scheduled', 'overdue', 'in_progress', 'completed', 'deferred')
-  assigned_to: UUID? (FK -> user)
+  task_type: enum(inspection, oil_change, ad, sb, overhaul, repair, annual, 100hr, phase)
+  status: enum(scheduled, in_progress, completed, overdue, deferred)
+  reference: string? (AD/SB reference)
+  interval_hours: float?, interval_days: integer?
   scheduled_date: date?
   completed_date: datetime?
-  completed_hours: float?
-  completed_cycles: integer?
-  approved_by: UUID? (FK -> user)
-  deferral_ref: string? (MEL item #, approval doc)
-  created_by: UUID (FK -> user)
+  completed_hours: float?, completed_cycles: integer?
+  approved_by: string? (user ID)
+  notes: text?
   created_at: datetime
   updated_at: datetime
 }
@@ -303,30 +394,28 @@ MaintenanceTask {
 Flight {
   id: UUID (PK)
   organization_id: UUID (FK)
-  aircraft_id: UUID (FK)
-  flight_number: string? (internal)
-  tail_number: string (denormalized for quick ref)
-  type: enum('passenger', 'cargo', 'ferry', 'positioning', 'training', 'charter')
-  status: enum('scheduled', 'active', 'completed', 'cancelled', 'diverted')
+  aircraft_id: UUID? (FK)
+  flight_number: string?
+  flight_type: enum(passenger, cargo, ferry, positioning, training, charter)
+  status: enum(scheduled, active, completed, cancelled, diverted)
   departure_airport: string (ICAO)
   arrival_airport: string (ICAO)
   alternate_airport: string? (ICAO)
-  departure_time: datetime? (scheduled)
-  arrival_time: datetime? (scheduled)
-  actual_departure: datetime? (actual)
-  actual_arrival: datetime? (actual)
-  flight_time_hours: float? (hobbs)
-  cycles: integer? (usually 1 per leg)
+  scheduled_departure: datetime?
+  scheduled_arrival: datetime?
+  actual_departure: datetime?
+  actual_arrival: datetime?
+  flight_time_hours: float?
+  cycles: integer? (default 1)
   fuel_burned_liters: float?
-  fuel_cost: decimal?
-  pilot_in_command: UUID? (FK -> crew)
-  second_in_command: UUID? (FK -> crew)
-  crew_members: UUID[] (other crew)
+  pilot_in_command: string? (user ID)
+  second_in_command: string? (user ID)
   passengers_count: integer?
   cargo_weight_kg: float?
   customs_clearance_ref: string?
   manifest_ref: string?
   revenue: decimal?
+  fuel_cost: decimal?
   notes: text?
   created_at: datetime
   updated_at: datetime
@@ -339,49 +428,31 @@ Flight {
 CrewMember {
   id: UUID (PK)
   organization_id: UUID (FK)
-  user_id: UUID? (FK, nullable for non-user crew)
-  first_name: string
-  last_name: string
-  email: string?
-  phone: string?
-  role: enum('captain', 'first_officer', 'sic', 'mechanic', 'flight_attendant', 'dispatcher')
-  license_type: enum('atpl', 'cpl', 'ppl', 'mechanics')
-  license_number: string?
-  license_country: string
+  first_name: string, last_name: string
+  email: string?, phone: string?
+  role: enum(captain, first_officer, sic, mechanic, flight_attendant, dispatcher)
+  license_type: enum(atpl, cpl, ppl, mechanics)
+  license_number: string?, license_country: string
   license_expiry: date?
-  medical_class: enum(1, 2, 3)
+  medical_class: enum(class_1, class_2, class_3)
   medical_expiry: date?
-  passport_number: string?
-  passport_expiry: date?
-  visa_details: JSONB? (country, expiry)
+  passport_number: string?, passport_expiry: date?
+  visa_details: JSONB?
   date_of_hire: date
-  status: enum('active', 'onleave', 'training', 'sick', 'inactive', 'terminated')
+  status: enum(active, on_leave, training, sick, inactive, terminated)
   base_airport: string
-  currency_metrics: JSONB {
-    last_90d_hours: float,
-    last_90d_landings: integer,
-    last_12m_hours: float,
-    current_duty_day_hours: float,
-    duty_period_end: datetime?,
-    last_flight: datetime?,
-    last_proficiency: datetime?,
-    last_medical: datetime?,
-  }
+  currency_metrics: JSONB
   created_at: datetime
   updated_at: datetime
 }
-```
 
-### 3.8 Crew Qualifications & Training
-
-```
 CrewQualification {
   id: UUID (PK)
   crew_id: UUID (FK)
-  aircraft_id: UUID? (FK, type-specific if applicable)
-  qual_type: enum('type_rating', 'proficiency_check', 'line_check', 'instrument_rating',
-                   'recurrent_training', 'differential_training', 'hazmat', 'dgr', 'first_aid')
-  status: enum('current', 'expiring_soon', 'expired')
+  aircraft_id: UUID? (FK)
+  qual_type: enum(type_rating, proficiency_check, line_check, instrument_rating,
+                   recurrent_training, differential_training, hazmat, dgr, first_aid)
+  status: enum(current, expiring_soon, expired)
   issued_date: date
   expiry_date: date?
   completed_hours: float?
@@ -390,319 +461,501 @@ CrewQualification {
 }
 ```
 
-### 3.9 Documents & Compliance
+### 3.8 Documents & Compliance
 
 ```
 Document {
   id: UUID (PK)
   organization_id: UUID (FK)
-  aircraft_id: UUID? (FK)
-  crew_id: UUID? (FK)
+  aircraft_id: UUID? (FK), crew_id: UUID? (FK)
   title: string
-  doc_type: enum('airworthiness_cert', 'registration', 'insurance', 'operating_specs',
-                  'opus_specs', 'caribbean_waiver', 'customs_clearance', 'noise_cert',
-                  'export_cert', 'dry_lease', 'crew_license', 'medical', 'training_record',
-                  'maintenance_manual', 'ops_manual', 'mel', 'other')
-  doc_number: string? (reference number)
-  issuing_authority: string? (e.g. "BCAA", "FAA", "OTAR")
+  doc_type: enum(airworthiness_cert, registration, insurance, operating_specs,
+                  opus_specs, caribbean_waiver, customs_clearance, noise_cert,
+                  export_cert, dry_lease, crew_license, medical, training_record,
+                  maintenance_manual, ops_manual, mel, other)
+  doc_number: string?
+  issuing_authority: string?
   issue_date: date
   expiry_date: date?
   reminder_days: integer (default 30)
-  file_url: string? (path to uploaded PDF)
-  status: enum('current', 'expiring_soon', 'expired', 'revoked')
+  file_url: string?
+  status: enum(current, expiring_soon, expired, revoked)
   notes: text?
   created_at: datetime
   updated_at: datetime
 }
 ```
 
-### 3.10 Financial Records
+### 3.9 Financial Records
 
 ```
 FinancialRecord {
   id: UUID (PK)
   organization_id: UUID (FK)
-  aircraft_id: UUID (FK)
+  aircraft_id: UUID? (FK)
   flight_id: UUID? (FK)
-  record_type: enum('revenue', 'cost', 'invoice', 'expense')
-  category: enum('charter_revenue', 'cargo_revenue', 'fuel', 'maintenance',
-                  'crew', 'insurance', 'landing_fees', 'handling', 'hangar',
-                  'training', 'navigation', 'customs', 'misc')
+  maintenance_task_id: UUID? (FK)
+  record_type: enum(revenue, cost, invoice, expense)
+  category: enum(charter_revenue, cargo_revenue, fuel, maintenance, crew,
+                  insurance, landing_fees, handling, hangar, training, customs, misc)
   amount: decimal
   currency: string (default: USD)
-  description: string?
+  description: text?
   entry_date: date
-  reference: string? (invoice #, receipt #)
-  tax_applicable: boolean
+  reference: string?
   created_at: datetime
 }
 ```
 
-### 3.11 Audit Log
+### 3.10 Leg Costs (Per-Leg Expenses)
+
+```
+LegCost {
+  id: UUID (PK)
+  flight_leg_id: UUID (FK -> flight_legs)
+  category: enum(fuel, handling, landing, customs, parking, misc)
+  amount: float
+  currency: string (default: USD)
+  payment_method: enum(cash, credit, credit_card, wire)
+  notes: text?
+  receipt_url: text?
+  logged_by: string?
+  logged_at: datetime
+  created_at: datetime
+  updated_at: datetime
+}
+```
+
+### 3.11 Flight Release (Part 135 Document)
+
+```
+FlightRelease {
+  id: UUID (PK)
+  organization_id: UUID (FK)
+  release_number: string (unique, auto-generated FR-YYYY-NNN)
+  status: enum(draft, released, amended, closed)
+  mission_name: string?
+  aircraft_id: UUID? (FK)
+  origin_icao: string, dest_icao: string, alternate_icao: string?
+  departure_time: datetime?
+  est_enroute_minutes: integer?
+  route_waypoints: JSON (ordered waypoint list)
+  pic_id: string?, sic_id: string?
+  pic_duty_start: datetime?, pic_duty_end: datetime?
+  sic_duty_start: datetime?, sic_duty_end: datetime?
+  weather_brief: JSON (per-airport METAR/TAF)
+  notam_refs: JSON (NOTAM identifiers)
+  ramp_fuel_lbs: float?, trip_fuel_lbs: float?
+  contingency_fuel_lbs: float?, alternate_fuel_lbs: float?
+  reserve_fuel_lbs: float?, arrival_fuel_lbs: float?
+  fuel_legal: boolean
+  safe_for_flight: boolean
+  maintenance_signed_by: string?, maintenance_signed_at: datetime?
+  mission_capability: enum(full, partial, not_capable)
+  maintenance_restrictions: JSON?
+  gripes_open: JSON, gripes_deferred: JSON
+  pic_acceptance: text?
+  pic_signed_at: datetime?, dispatcher_signed_at: datetime?
+  reviewed_by: string?
+  destination_risk: enum(low, moderate, high, extreme)?
+  ground_security: enum(normal, elevated, high_threat, critical)?
+  overwater_legs: boolean
+  etp_waypoint: string?
+  customs_status: enum(not_required, pending, cleared, denied)?
+  created_at: datetime
+  updated_at: datetime
+  amended_at: datetime?
+  closed_at: datetime?
+}
+```
+
+### 3.12 Audit Log
 
 ```
 AuditLog {
   id: UUID (PK)
-  organization_id: UUID
+  organization_id: UUID (FK)
   user_id: UUID? (null for system actions)
-  action: string (e.g. "flight.created", "maintenance.completed", "user.role_changed")
-  entity_type: string (e.g. "flight", "aircraft")
-  entity_id: UUID
-  old_values: JSONB?
-  new_values: JSONB?
-  ip_address: string?
-  user_agent: string?
+  action: string (e.g. "flight.created", "maintenance.completed")
+  entity_type: string, entity_id: UUID
+  old_values: JSONB?, new_values: JSONB?
+  ip_address: string?, user_agent: string?
   created_at: datetime
 }
 ```
 
----
+### 3.13 Mission / Flight Leg (Multi-Leg Planning)
 
-## 4. Module Specifications (MVP First)
+```
+Mission {
+  id: UUID (PK)
+  organization_id: UUID (FK)
+  name: string
+  status: enum(draft, active, completed, cancelled)
+  aircraft_id: UUID? (FK)
+  created_by: string? (user ID)
+  created_at: datetime
+  updated_at: datetime
+}
 
-### Module 1: Auth & Organization Setup
-**Priority: P0 | Effort: 3 days | Dependencies: None**
-
-- Email/password registration + login
-- JWT access + refresh tokens
-- MFA via TOTP (optional per user)
-- Role-based access control (RBAC) middleware
-- Organization creation wizard (multi-tenant)
-- Invite users via email link
-- Password reset flow
-- Session management (active sessions, force logout)
-- Audit log for all auth events
-
-### Module 2: Fleet Configuration
-**Priority: P0 | Effort: 2 days | Dependencies: Module 1**
-
-- Add/edit/retire aircraft
-- Aircraft detail page with all config
-- Component tracking (engines, props, LEs, etc.)
-- Bulk aircraft import from CSV
-- Status badges (active/maintenance/grounded/ferry)
-- Tail number search
-- Aircraft image + logo
-
-### Module 3: Maintenance Tracking
-**Priority: P0 | Effort: 5 days | Dependencies: Module 2**
-
-- Maintenance task library (recurring + one-time)
-- Inspection interval tracking (hours/cycles/calendar)
-- AD/SB compliance tracker
-- Due/overdue dashboard with color-coded alerts
-- Maintenance log entry (with signature)
-- Deferred maintenance (MEL) workflow
-- 100-hour / Annual / Phase inspection tracking
-- Component TBO tracking with alerts
-- Parts tracking (with 8130 tag support for FAR 135)
-- Maintenance release (FAR 135.65 requirement)
-- Calendar integration (Google Calendar / iCal export)
-- Email reminders for upcoming tasks
-
-### Module 4: Flight Operations & Scheduling
-**Priority: P0 | Effort: 5 days | Dependencies: Module 2, Module 3**
-
-- Flight scheduling calendar (weekly/monthly view)
-- Trip creation (route, aircraft, crew, pax, cargo)
-- Manifest generation (passenger + cargo)
-- Flight log entry (actuals vs scheduled)
-- Crew assignment with conflict detection
-- Duty time tracking (FAR 135.267/271 compliance)
-- Airport database (ICAO codes, coordinates, FBOs)
-- Route library (frequent routes)
-- Customs / CIQ flagging for international legs
-- Real-time status board (scheduled / active / completed / diverted)
-- Flight tracking via ADS-B integration (ADSB.lol / OpenSky)
-- Automatic manifest + customs form generation
-
-### Module 5: Crew Management
-**Priority: P0 | Effort: 3 days | Dependencies: Module 1**
-
-- Crew member profiles (all license/medical/passport data)
-- Currency dashboard (90-day, 12-month, duty-day limits)
-- Qualification tracking with expiry alerts
-- Training records (proficiency checks, recurrent training)
-- Crew scheduling (assign to trips)
-- Duty time calculator (FAR 117 or 135)
-- Crew availability / leave management
-- Document expiration reminders (medical, license, passport)
-
-### Module 6: Compliance & Document Management
-**Priority: P0 | Effort: 3 days | Dependencies: Module 2, Module 5**
-
-- Document upload + metadata (type, authority, expiry)
-- Expiration tracking dashboard (color-coded: green/yellow/red)
-- Document storage (S3/Minio local storage)
-- Country-specific compliance tags:
-  - **Bahamas (BCAA):** operating specs, air operator certificate, noise cert, overflight permits, customs pre-clearance, landing permits, passenger manifests
-  - **Haiti:** MTTP landing permits, overflight clearances (PROFODA), cargo customs declarations, passenger visa checks, security clearances
-  - **US:** TSA rules, customs pre-clearance, APIS manifest, eAPIS filing
-  - **Caribbean island-hopping:** blanket overflight waivers, multi-stop customs protocols
-- Compliance checklist per route (auto-calculated — "Before flying MYNN→MTPP you need: BCAA AOC, Haiti overflight permit, customs pre-clearance, passenger manifest")
-- Export/audit report (PDF)
-- Automated reminder emails (configurable lead time per doc type)
-- Version history for documents
-- BCAA-specific fields: AOC number, AOC expiry, OpSpec reference, inter-carrier agreement references
-
-### Module 7: Financial Dashboard
-**Priority: P0 | Effort: 4 days | Dependencies: Module 2, Module 4**
-
-- **Auto-record creation** — completing a flight or maintenance event automatically creates financial records:
-  - Flight completed → auto-generates revenue entry (charter/cargo rate) + cost entries (fuel burn × price, crew hourly, landing fees)
-  - Maintenance completed → auto-generates cost entry (parts + labor, reference to invoice)
-  - Manual override always available for adjustments
-- P&L per tail number (auto-calculated per flight)
-- Cost categories: fuel, crew, maintenance, landing/handling, insurance, misc
-- Revenue tracking per flight/charter
-- Monthly/quarterly/YTD financial summaries
-- Profit margin per route
-- Budget vs actual tracking
-- QuickBooks export (CSV/QBO format)
-- Invoice generation (basic)
-- Fuel cost tracking (gallons, price per gallon)
-- Break-even analysis per aircraft
-
-### Module 8: Operation Center Dashboard
-**Priority: P0 | Effort: 3 days | Dependencies: All above (at minimum Modules 1-4)**
-
-- Single-pane view of today's operations
-- Aircraft status widget (each tail — color-coded card with live position on MapLibre GL map)
-- **ADS-B live tracking** — each aircraft shown as moving icon on map, click for flight details (speed, altitude, heading, last seen). Data from ADSB.lol / OpenSky API, updated via WebSocket polling (15s interval)
-- Upcoming maintenance alerts
-- Today's flight schedule (timeline view)
-- Crew duty status
-- Weather at bases (Open-Meteo API)
-- Recent financial snapshot
-- Quick actions (log flight, add maintenance, create trip)
-- Notification bell (pending tasks, approvals, expirations)
-- Real-time last-seen timestamps for fleet
-
-### Module 9: Comms & Emergency Alerting
-**Priority: P0 (Phase 1) | Effort: 2 days | Dependencies: Module 1**
-
-- **WebSocket notification bus** — real-time push to all connected clients (maintenance due, flight status changes, expiry alerts)
-- **Emergency alert button** — prominent on Operation Center and mobile PWA:
-  - One tap triggers: dashboard-wide red banner, email to ops team, SMS via Twilio/email-to-SMS gateway
-  - Configurable escalation: who gets notified, by what channel, at what severity
-- Notification preferences per user (email, SMS, in-app, push)
-- Unacknowledged alert escalation (if not dismissed in N minutes, escalate up the chain)
-- Alert history log (timestamped, acknowledged by whom, resolution notes)
-- Integration with external notification channels (Twilio for SMS, SendGrid/Resend for email)
-
-### Module 10: Onboarding Wizard
-**Priority: P1 (Phase 1) | Effort: 2 days | Dependencies: Module 1**
-
-- Step-by-step setup wizard for new organization
-- Add first aircraft
-- Add first crew members
-- Configure maintenance intervals
-- Set up basic financial accounts
-- Upload compliance documents
-- "Quick Start" mode with demo data
-- Help tooltips throughout
-
-### Module 11: AI Help Desk (Stub)
-**Priority: P1 (Phase 1) | Effort: 1 day | Dependencies: Module 1**
-
-- In-app chat interface (modal, collapsible)
-- Context-aware queries via integrated Hermes agent:
-  - "When was the last oil change on C6-PRD?" → checks maintenance records
-  - "What docs do I need for Nassau to Haiti?" → checks route compliance
-  - "What maintenance is due in the next 30 days?" → forecasts from task intervals
-- Pre-built Q&A templates for common ops questions
-- Extensible: additional Hermes plug-in skills added per operator's needs
-
-### Module 12: White-Label / Multi-Tenant
-**Priority: P1 (Phase 2) | Effort: 3 days | Dependencies: Module 1**
-
-- Organization branding (logo, colors, favicon)
-- Custom subdomain (acme.ops.pararig.com)
-- Custom email templates
-- Feature flags per tenant
-- Usage/billing tier management
-- Self-hosted license key generation
-
----
-
-## 5. API Design Principles
-
-- **RESTful** — resources as nouns, HTTP verbs as actions
-- **Versioned** — `/api/v1/aircraft`
-- **Consistent** — pagination via `?page=1&per_page=25`, sorting via `?sort=-created_at`
-- **OpenAPI** — auto-generated docs at `/docs` and `/redoc`
-- **Response envelope:**
-```json
-{
-  "data": { ... },
-  "meta": { "page": 1, "per_page": 25, "total": 142 },
-  "error": null
+FlightLeg {
+  id: UUID (PK)
+  mission_id: UUID (FK)
+  leg_index: integer
+  origin: string (ICAO), destination: string (ICAO)
+  scheduled_departure: datetime?
+  scheduled_arrival: datetime?
+  actual_departure: datetime?
+  actual_arrival: datetime?
+  flight_time_minutes: float?
+  status: enum(scheduled, active, completed, cancelled)
+  notes: text?
 }
 ```
 
-### Key Endpoints (MVP)
+---
+
+## 4. Module Specifications — Current Build Status
+
+All 11 Phase 1 modules are **built and operational**. Below is what was actually delivered for each.
+
+### Module 1: Auth & Organization Setup — COMPLETED
+
+- **JWT access tokens** (480min TTL, configurable) + **refresh tokens** (7 day TTL)
+- **MFA via TOTP** (pyotp) — optional per user, encrypted at rest
+- **11-role RBAC** — `app/core/roles.py` with `FEATURE_PERMISSION_MATRIX` in `app/core/features.py` (26 features, 12 categories)
+- **Organization isolation** — all entities scoped to `organization_id`
+- **Invite codes** with multi-role selection + per-user feature overrides
+- **Bootstrap code** (`PARARIG-ADMIN-2026`) for creating the first admin
+- **Bulk user import** via CSV
+- **Password hashing** (bcrypt), **email/password login**
+- **Audit log** for auth events
+
+### Module 2: Fleet Configuration — COMPLETED
+
+- Aircraft CRUD with full config (weights, performance, capabilities)
+- Component tracking (engines, props, landing gear, batteries, avionics, APU, hydraulic)
+  - TBO tracking (hours + cycles + calendar)
+  - Life-limited part (LLP) tracking
+  - Hours/cycles since overhaul
+- CSV bulk import for aircraft
+- Status badges (active/in_maintenance/grounded/retired/stored)
+- Insurance tracking (provider, policy, expiry, coverage amount)
+- Registration/airworthiness/CofA expiry tracking
+
+### Module 3: Maintenance Tracking — COMPLETED
+
+- Maintenance task library (scheduled/in_progress/completed/overdue/deferred)
+- Interval tracking (hours + calendar days)
+- AD/SB compliance tracker (`ad_compliance.py` — real ADs for King Air 350/200, DHC-6 Twin Otter, Basler BT-67)
+  - Severity-grounded: critical (grounded), major (time-limited), minor (informational), optional (SB)
+  - Compliance methods: one-time, recurring by hours, cycles, calendar, or both
+- Maintenance dashboard endpoint (due/overdue with color-coded alerts)
+- Task types: inspection, oil_change, ad, sb, overhaul, repair, annual, 100hr, phase
+- Maintenance release signoff (Safe for Flight) integrated into flight release workflow
+- Gripe system (open/deferred gripes as JSON on flight release)
+- Deferred maintenance (MEL) workflow
+
+### Module 4: Flight Operations & Scheduling — COMPLETED
+
+- Multi-leg mission planning (Mission + FlightLeg model, status lifecycle)
+- Route planner (`POST /api/v1/routes/plan`):
+  - Per-leg: distance (haversine), block time, fuel burn, capabilities check
+  - Weight & balance per leg
+  - Crew duty time compliance (FAR 135.267/271)
+  - Per-destination: METAR/TAF weather brief via AviationWeather.gov
+  - NOTAM retrieval via FAA NMS API
+  - Cash estimates (fuel, handling, landing, customs, misc costs)
+  - Mission totals: time, fuel, distance, critical flags
+- Flight releases with 3-gate signoff (Maintenance → PIC → Dispatcher):
+  - Release number (auto-generated FR-YYYY-NNN)
+  - Crew duty start/end tracking
+  - Fuel planning (ramp, trip, contingency, alternate, reserve, arrival fuel — all in lbs)
+  - Fuel legality check
+  - Gripes (open + deferred)
+  - Weather brief + NOTAM refs as JSON
+  - Destination risk assessment (hot-zone: low/moderate/high/extreme)
+  - Ground security levels (normal/elevated/high_threat/critical)
+  - Overwater leg detection + ETP waypoint
+  - Customs status tracking
+  - Amended/closed lifecycle
+- Airport database with auto-lookup from OurAirports (`airport_lookup.py`)
+- Route library (frequent routes)
+- Flight status tracking (scheduled/active/completed/cancelled/diverted)
+- Ops checks endpoint
+
+### Module 5: Crew Management — COMPLETED
+
+- Crew member profiles (license, medical, passport, visa data)
+- 13-member seed data with full profiles
+- Qualification tracking with expiry alerts (type ratings, proficiency checks, recurrent training, etc.)
+- Aircraft-type matching via CrewQualification.aircraft_id
+- Duty time calculator (FAR 135.267 enforcement):
+  - 8hr flight time in 24hr (single-pilot) / 10hr (2-pilot)
+  - 14hr maximum duty period
+  - Minimum 10hr consecutive rest
+  - Quarterly/annual flight hour limits (500/800/1400)
+- Crew currency metrics (90-day, 12-month hours/landings)
+- Logbook entries
+
+### Module 6: Compliance & Document Management — COMPLETED
+
+- Document upload with metadata (type, authority, expiry)
+- Expiration tracking (color-coded: current/expiring_soon/expired)
+- Document status management
+- Compliance checklist per route (auto-calculated via route planner)
+- Document types cover: airworthiness cert, registration, insurance, operating specs, Caribbean waivers, customs clearance, noise cert, export cert, dry lease, crew license, medical, training records, ops manual, MEL
+- Reminder days (configurable per document)
+
+### Module 7: Financial Dashboard — COMPLETED
+
+- FinancialRecord model (revenue/cost/invoice/expense) with auto-creation from flights
+- P&L per tail number
+- Cost categories: fuel, maintenance, crew, insurance, landing fees, handling, hangar, training, customs, misc
+- Mission P&L endpoint (estimated vs actual reconciliation)
+- Leg-level cost tracking (LegCost model — fuel, handling, landing, customs, parking, misc per leg)
+  - Payment method tracking (cash/credit/credit_card/wire)
+  - Receipt URL support
+  - Logged-by attribution
+- Cost reporting endpoints
+
+### Module 8: Operation Center — COMPLETED
+
+- MapLibre GL map with dark-matter style tiles
+- 10 toggleable layers:
+  1. Fleet (aircraft positions)
+  2. Routes (planned/active route lines)
+  3. Fuel rings (range rings)
+  4. Weather (METAR overlay)
+  5. NOTAMs
+  6. Progress tracker (mission progress)
+  7. Trails (aircraft trail history)
+  8. Airports
+  9. ETP markers (Equal Time Points for overwater)
+  10. Radar overlay
+- Live ADS-B tracking via ADSB.lol / OpenSky API
+- Emergency alert dialog
+- In-app crew messaging (WebSocket notification bus)
+- METAR/NOTAM briefing display
+
+### Module 9: Comms & Emergency Alerting — COMPLETED
+
+- WebSocket notification bus — real-time push to connected clients
+- Notification model (persistent, with read status)
+- Emergency alert with escalation support
+- Configurable: Twilio SMS support (optional), SMTP email (optional)
+
+### Module 10: Onboarding Wizard — COMPLETED
+
+- Invite code system with multi-role selection
+- Per-user feature overrides on invite
+- Onboarding wizard React component (feature/onboarding/)
+- Bootstrap code for first admin creation
+- Bulk CSV user import
+
+### Module 11: AI Help Desk — COMPLETED
+
+- In-app chat interface (HelpdeskPanel — collapsible modal)
+- Context-aware queries via integrated AI agent
+- Pre-built Q&A templates for common operations questions
+
+### Module 12: White-Label / Multi-Tenant (Phase 2 — Not Yet Built)
+
+- Organization branding: partial (logo_url field exists, no full theming UI)
+- Custom subdomain: planned
+- Custom email templates: planned
+- Feature flags per tenant: partial (settings JSONB on Organization)
+- Usage/billing tier management: planned
+- Self-hosted license key generation: planned
+
+---
+
+## 5. API Endpoints (Registered Routes)
+
+All routes are mounted under `/api/v1` prefix. OpenAPI docs auto-generated at `/docs`.
 
 ```
+# Auth
 POST   /api/v1/auth/login
 POST   /api/v1/auth/register
 GET    /api/v1/auth/me
+POST   /api/v1/auth/refresh
 POST   /api/v1/auth/mfa/setup
 POST   /api/v1/auth/mfa/verify
+POST   /api/v1/auth/mfa/disable
 
+# Onboarding
+POST   /api/v1/onboarding/bootstrap     # First admin via bootstrap code
+POST   /api/v1/onboarding/invite         # Create invite code
+POST   /api/v1/onboarding/accept-invite  # Accept invite
+
+# Help Desk
+POST   /api/v1/helpdesk/query            # AI query endpoint
+
+# Aircraft
 GET    /api/v1/aircraft
 POST   /api/v1/aircraft
 GET    /api/v1/aircraft/{id}
 PATCH  /api/v1/aircraft/{id}
 DELETE /api/v1/aircraft/{id}
 GET    /api/v1/aircraft/{id}/components
-GET    /api/v1/aircraft/{id}/maintenance
-GET    /api/v1/aircraft/{id}/flights
-GET    /api/v1/aircraft/{id}/financial
+POST   /api/v1/aircraft/{id}/components
+PATCH  /api/v1/aircraft/{id}/components/{component_id}
 
+# Airports
+GET    /api/v1/airports                   # Search/lookup airports
+GET    /api/v1/airports/{icao}            # Airport detail
+
+# Routes
+GET    /api/v1/routes                     # Route library
+POST   /api/v1/routes                     # Create route
+POST   /api/v1/routes/plan                # Full route planner (W&B, crew, weather, NOTAMs, costs)
+
+# Maintenance
 GET    /api/v1/maintenance
 POST   /api/v1/maintenance
 GET    /api/v1/maintenance/{id}
 PATCH  /api/v1/maintenance/{id}
-GET    /api/v1/maintenance/due
-GET    /api/v1/maintenance/overdue
-GET    /api/v1/maintenance/search?q=AD+2023
+DELETE /api/v1/maintenance/{id}
+GET    /api/v1/maintenance/due            # Due tasks
+GET    /api/v1/maintenance/overdue        # Overdue tasks
 
+# Maintenance Dashboard
+GET    /api/v1/maintenance/dashboard      # Aggregated maintenance dashboard
+
+# Flights
 GET    /api/v1/flights
 POST   /api/v1/flights
 GET    /api/v1/flights/{id}
 PATCH  /api/v1/flights/{id}
-GET    /api/v1/flights/active
-GET    /api/v1/flights/calendar?from=...&to=...
+DELETE /api/v1/flights/{id}
+GET    /api/v1/flights/active             # Currently active flights
 
+# Flight Releases
+GET    /api/v1/flight-releases
+POST   /api/v1/flight-releases
+GET    /api/v1/flight-releases/{id}
+PATCH  /api/v1/flight-releases/{id}
+POST   /api/v1/flight-releases/{id}/sign/maintenance   # Gate 1 signoff
+POST   /api/v1/flight-releases/{id}/sign/pic            # Gate 2 signoff
+POST   /api/v1/flight-releases/{id}/sign/dispatcher     # Gate 3 signoff
+POST   /api/v1/flight-releases/{id}/amend               # Amend release
+
+# Crew
 GET    /api/v1/crew
 POST   /api/v1/crew
 GET    /api/v1/crew/{id}
 PATCH  /api/v1/crew/{id}
+DELETE /api/v1/crew/{id}
 GET    /api/v1/crew/{id}/qualifications
-GET    /api/v1/crew/available?aircraft_id=...&date=...
+POST   /api/v1/crew/{id}/qualifications
+GET    /api/v1/crew/available             # Available crew lookup
 
+# Compliance / Documents
 GET    /api/v1/compliance/documents
 POST   /api/v1/compliance/documents
 GET    /api/v1/compliance/documents/{id}
-GET    /api/v1/compliance/expiring
-GET    /api/v1/compliance/checklist?from=...&to=...
+PATCH  /api/v1/compliance/documents/{id}
+DELETE /api/v1/compliance/documents/{id}
+GET    /api/v1/compliance/expiring        # Expiring documents
 
-GET    /api/v1/finance/pnl?tail=...&from=...&to=...
-GET    /api/v1/finance/costs?tail=...
-GET    /api/v1/finance/summary?period=monthly|quarterly|yearly
+# Communications
+GET    /api/v1/comms/notifications        # User notifications
+POST   /api/v1/comms/notifications/{id}/read
+POST   /api/v1/comms/emergency            # Trigger emergency alert
+WS     /api/v1/comms/ws                   # WebSocket connection
 
-GET    /api/v1/dashboard/today
-GET    /api/v1/dashboard/alerts
-GET    /api/v1/dashboard/maintenance-forecast
-GET    /api/v1/dashboard/financial-snapshot
+# Finance
+GET    /api/v1/finance/records
+POST   /api/v1/finance/records
+GET    /api/v1/finance/pnl               # P&L by tail
+GET    /api/v1/finance/pnl/mission/{id}   # Mission P&L
+GET    /api/v1/finance/summary            # Financial summary
 
-GET    /api/v1/airports?search=...
-GET    /api/v1/routes
-POST   /api/v1/routes
+# Tracking (ADS-B)
+GET    /api/v1/tracking/positions         # Live aircraft positions
+GET    /api/v1/tracking/history/{tail}    # Position history
 
+# Ops Checks
+GET    /api/v1/ops-checks
+POST   /api/v1/ops-checks
+
+# Missions
+GET    /api/v1/missions
+POST   /api/v1/missions
+GET    /api/v1/missions/{id}
+PATCH  /api/v1/missions/{id}
+DELETE /api/v1/missions/{id}
+POST   /api/v1/missions/{id}/legs
+PATCH  /api/v1/missions/{id}/legs/{leg_id}
+DELETE /api/v1/missions/{id}/legs/{leg_id}
+
+# Passengers
+GET    /api/v1/passengers
+POST   /api/v1/passengers
+GET    /api/v1/passengers/{id}
+PATCH  /api/v1/passengers/{id}
+DELETE /api/v1/passengers/{id}
+
+# Users
+GET    /api/v1/users
+GET    /api/v1/users/{id}
+PATCH  /api/v1/users/{id}
+DELETE /api/v1/users/{id}
+
+# Organization Settings
+GET    /api/v1/org/settings
+PATCH  /api/v1/org/settings
+
+# Admin
 GET    /api/v1/admin/users
 POST   /api/v1/admin/invite
 PATCH  /api/v1/admin/users/{id}/role
+PATCH  /api/v1/admin/users/{id}/features  # Update feature overrides
+
+# Bulk Import
+POST   /api/v1/bulk-import/aircraft
+POST   /api/v1/bulk-import/crew
+POST   /api/v1/bulk-import/users
+
+# Export
+GET    /api/v1/export/flights
+GET    /api/v1/export/finance
+GET    /api/v1/export/crew
+
+# Logbook
+GET    /api/v1/logbook
+POST   /api/v1/logbook
+GET    /api/v1/logbook/{id}
+PATCH  /api/v1/logbook/{id}
+
+# Reports
+GET    /api/v1/reports/flight-summary
+GET    /api/v1/reports/maintenance-summary
+
+# Weather / Briefing
+GET    /api/v1/weather/metar/{icao}
+GET    /api/v1/weather/taf/{icao}
+GET    /api/v1/weather/notams/{icao}
+
+# Costs
+GET    /api/v1/costs
+POST   /api/v1/costs
+
+# Leg Costs
+GET    /api/v1/leg-costs
+POST   /api/v1/leg-costs
+GET    /api/v1/leg-costs/by-leg/{leg_id}
+
+# Briefing
+GET    /api/v1/briefing/{mission_id}      # Full mission briefing
+
+# Permissions
+GET    /api/v1/permissions/my             # Current user's effective permissions
+GET    /api/v1/permissions/features       # All known features
+
+# Health
+GET    /health                            # Health check
 ```
 
 ---
@@ -712,57 +965,66 @@ PATCH  /api/v1/admin/users/{id}/role
 ### Design System
 - **Panel** — shadcn/ui components (consistent, accessible)
 - **Dark mode first** — aviation ops centers run dark, respect that
-- **Mobile-first responsive** — pilots enter data on phones
-- **PWA offline cache** — cached routes, maintenance schedules, and flight lists available without connectivity
+- **Sidebar navigation** — collapsible sidebar with icon + label, 14 nav items
+- **Responsive** — works on desktop and tablet
 
-### Key Screens (MVP)
+### Key Screens (Built)
 
-**Operation Center (Home)**
-```
-┌─────────────────────────────────────────────────────┐
-│ HEADER:  Logo | Today's Date | Weather: 82°F / 28°C│
-│                 MYNN: VFR 10sm | MTPP: VFR 8sm      │
-│         [Log Flight] [Add Mx] [Create Trip]         │
-├───────────────────┬─────────────────────────────────┤
-│ Aircraft Status   │ Today's Schedule                │
-│ ┌───────────────┐ │ ┌─────────────────────────────┐ │
-│ │ C6-PRD  ACTIVE│ │ │ 0800 C6-PRD → MTPP (Capt J) │ │
-│ │ Hobbs: 4523hr │ │ │ 1000 C6-PRV → MYGF (FO W)   │ │
-│ │ D Update: 12hr│ │ │ 1400 C6-PRD → MYNN (Capt J) │ │
-│ └───────────────┘ │ └─────────────────────────────┘ │
-│ ┌───────────────┐ │ Alerts                          │
-│ │ C6-PRV  IN MX │ │ ⚠ 100hr due C6-PRD in 23hrs   │
-│ │ Due: Oil Chng │ │ 🔴 Medical expiring: S. Jones  │
-│ └───────────────┘ │ 🟡 Insurance renew Aug 15      │
-├───────────────────┴─────────────────────────────────┤
-│ Quick P&L: Month-to-Date                            │
-│ C6-PRD: +$12,400 | C6-PRV: -$3,200 (in mx)        │
-│ Fleet Total: +$9,200                                │
-└─────────────────────────────────────────────────────┘
-```
+**Dashboard** — Morning Brief page (default route `/`)
+- Today's flights, weather, maintenance alerts, financial snapshot
+- Quick-action buttons
 
-**Fleet Dashboard**
+**Fleet Dashboard** (`/fleet`)
 - Grid of aircraft cards with color-coded status
-- Each card: tail number, type, status badge, next maintenance, last flight, hours/cycles
-- Click through to aircraft detail
+- Each card: tail number, type, status badge, hours
+- Click through to Aircraft Detail (`/fleet/:id`)
+- Tabs: Overview | Components | Maintenance | Flights | Financial
 
-**Aircraft Detail**
-- Tabs: Overview | Maintenance | Flights | Components | Documents | Financial
-- Overview: all config fields, status, current location on map
-- Maintenance tab: timeline of tasks, due/overdue counter
-- Flights tab: sortable/searchable history
+**Airport Lookup** (`/airports`)
+- Searchable airport database with ICAO codes, coordinates, FBOs
 
-**Maintenance View**
-- Calendar-style view of upcoming inspections
-- Filterable by tail, type, status
-- Due/overdue counts with red/orange/green badges
-- Click-to-complete workflow with digital signature
+**Missions** (`/missions`)
+- List of multi-leg missions with status
+- Mission Builder (`/missions/new`) — route planning with leg builder
+- Mission Detail (`/missions/:id`) — per-leg tracking, status, crew
 
-**Flight Schedule**
-- Weekly calendar view (drag to create trip)
-- Gantt-style timeline for day-of ops
-- Crew assignment with parallel flight conflict detection
-- Manifest popup per trip
+**Dispatch** (`/dispatch`)
+- Flight release management
+- Release detail with 3-gate signoff workflow
+
+**Operation Center** (`/operations`)
+- MapLibre GL dark-matter map with 10 toggleable layers
+- Live ADS-B aircraft positions
+- Emergency alert button
+- In-app messaging
+
+**Maintenance** (`/maintenance`)
+- Maintenance task list with due/overdue counters
+- Task creation and completion
+
+**Maint Control** (`/maint-control`)
+- Maintenance dashboard view
+- AD/SB compliance overview
+
+**Personnel** (`/crew`)
+- Crew member list with qualification status
+- Crew Detail (`/crew/:id`) — full profile, qualifications, currency
+
+**Compliance** (`/compliance`)
+- Document upload and expiration tracking
+- Color-coded status badges
+
+**Finance** (`/finance`)
+- P&L summary, cost records, per-mission financials
+
+**User Permissions** (`/admin/users`)
+- User management with role assignment
+- Feature override management
+
+**Admin Panel** (`/admin`)
+- System settings, invite code generation
+
+**Help Desk** — in-app collapsible chat panel
 
 ---
 
@@ -770,24 +1032,23 @@ PATCH  /api/v1/admin/users/{id}/role
 
 ### Auth & Access
 - bcrypt password hashing (work factor 12)
-- JWT access tokens (15min TTL) + refresh tokens (7 day TTL, rotate on use)
+- JWT access tokens (480min TTL) + refresh tokens (7 day TTL, rotate on use)
 - MFA via time-based OTP (TOTP) — authenticator app
-- Rate limiting on auth endpoints (5 attempts/15min per IP)
+- RBAC enforced at router level + service layer via `require_role()` / `require_feature()` dependencies
+- Feature-level permission overrides per user (`feature_overrides` JSON on User model)
+- PII clearance flag for sensitive passenger data access
 - Session invalidation on password change
-- RBAC enforced at router level + service layer
 
 ### API Security
-- CORS restricted to frontend origin
-- All requests logged (who, what, when, IP)
+- CORS restricted to frontend origin (configurable)
+- All requests logged to audit log (who, what, when, IP, user-agent)
 - SQLAlchemy parameterization — no raw SQL by convention
-- File upload validation (MIME type, size cap: 25MB)
-- API key support for programmatic access (optional)
+- Rate limiting on auth endpoints
 
 ### Data Security
 - All passwords hashed, never stored plaintext
 - MFA secrets encrypted at rest (AES-256)
-- S3/Minio storage with signed URLs for document access
-- Database backups encrypted
+- Local file storage for document uploads (S3/Minio swap possible)
 - Audit trail immutable (append-only pattern)
 
 ### Infrastructure
@@ -795,8 +1056,7 @@ PATCH  /api/v1/admin/users/{id}/role
 - Docker secrets for sensitive env vars
 - UFW on host: only SSH + Docker bridge open
 - Tailscale recommended for admin access
-- `Content-Security-Policy` headers on all responses
-- Helmet.js (or equivalent) middleware
+- `TrustedHostMiddleware` in production
 
 ---
 
@@ -818,11 +1078,11 @@ services:
     build: ./backend
     env_file: .env
     depends_on: [postgres]
-    volumes: [uploads:/app/uploads, static:/app/static]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
 
   frontend:
     build: ./frontend
-    env_file: .env
     depends_on: [backend]
 
   caddy:
@@ -831,157 +1091,144 @@ services:
     volumes: [./Caddyfile:/etc/caddy/Caddyfile, caddy_data:/data]
 ```
 
+### Development (No Docker)
+
+```bash
+# Backend
+cd backend
+source .venv/bin/activate
+alembic upgrade head
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Frontend (separate terminal)
+cd frontend
+npm install
+npm run dev
+```
+
 ### Environment Variables
 
 ```
 # Database
-DATABASE_URL=postgresql+asyncpg://pararig:${DB_PASSWORD}@postgres:5432/pararig_ops
-SQLITE_URL=sqlite+aiosqlite:///./pararig_ops.db
+DATABASE_URL=sqlite+aiosqlite:///./pararig_ops.db    # Dev
+DATABASE_URL=postgresql+asyncpg://pararig:${DB_PASSWORD}@postgres:5432/pararig_ops  # Prod
 
 # Auth
 SECRET_KEY=<random-64-char-hex>
 JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=15
+ACCESS_TOKEN_EXPIRE_MINUTES=480
 REFRESH_TOKEN_EXPIRE_DAYS=7
-
-# MFA
 MFA_ENCRYPTION_KEY=<random-32-char>
 
-# Storage
-UPLOAD_DIR=/app/uploads
-S3_ENDPOINT=  # optional, use local by default
-S3_BUCKET=
-S3_ACCESS_KEY=
-S3_SECRET_KEY=
+# Onboarding
+INVITE_BOOTSTRAP_CODE=PARARIG-ADMIN-2026
 
 # External APIs
-ADSB_API_KEY=
-OPENSKY_USERNAME=
-OPENSKY_PASSWORD=
-WEATHER_API_KEY=
+FAA_NMS_CLIENT_ID=         # FAA NOTAM API client ID
+FAA_NMS_CLIENT_SECRET=     # FAA NOTAM API secret
+TWILIO_ACCOUNT_SID=        # Optional SMS
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
 
-# Stripe (SaaS mode)
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
-
-# Email (notifications)
+# Email (optional)
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_USER=
 SMTP_PASSWORD=
-FROM_EMAIL=ops@pararig.com
+SMTP_FROM=
 
 # Instance
+ENVIRONMENT=dev|prod
 INSTANCE_MODE=self_hosted|saas
-LICENSE_KEY=  # for self-hosted activation
 ```
-
-### First-Run Walkthrough
-
-1. `cp .env.example .env && vim .env` — set secrets
-2. `docker compose up -d` — launches DB, backend, frontend, Caddy
-3. Backend auto-runs Alembic migrations on startup
-4. Visit `https://ops.pararig.com` — registration page
-5. First user to register becomes org super_admin
-6. Onboarding wizard steps through initial configuration
-7. Seed demo data available for evaluation
 
 ---
 
-## 9. Phased Development Roadmap
+## 9. Development Roadmap — Current Status
 
-### Phase 1 — MVP + Comms (5-7 weeks)
+### Phase 1 — Core Build (COMPLETED ✅)
 
-**We build in dependency order. Each module is demo-able before starting the next.**
+All 11 Phase 1 modules have been built and are operational. The system is running on the development stack and has been populated with seed data for a Caribbean Part 135 operation (2 aircraft, 13 crew members, multiple mission types).
 
-| # | Module | Weeks | Depends On |
-|---|--------|-------|-----------|
-| 1 | Auth + Org + RBAC | 1 | None |
-| 2 | Fleet Configuration | 3 days | Module 1 |
-| 3 | Maintenance Tracking | 1.5 | Module 2 |
-| 4 | Flight Ops & Scheduling | 1.5 | Modules 2, 3 |
-| 5 | Crew Management | 1 | Module 1 |
-| 6 | Compliance & Docs (BCAA/Haiti/US) | 1 | Modules 2, 5 |
-| 7 | Financial Dashboard (auto-record) | 1 | Modules 2, 4 |
-| 8 | Operation Center (with ADS-B map) | 3 days | All above |
-| 9 | Comms & Emergency Alerting | 2 days | Module 1 |
-| 10 | Onboarding Wizard | 2 days | Module 1 |
-| 11 | AI Help Desk (stub) | 1 day | Module 1 |
+**Delivered:** A full-stack system usable day one for a 2-aircraft Nassau ↔ Haiti operation. Manage aircraft, schedule missions, dispatch flights through a 3-gate release workflow, log maintenance, track crew currency, handle BCAA/Haiti compliance, see real-time P&L, and monitor operations on a live ADS-B map with emergency alerting.
 
-**Deliverable:** A full-stack system you can use day one for your 2-aircraft Nassau ↔ Haiti operation. Manage aircraft, schedule flights, log maintenance, track crew currency, handle BCAA/Haiti compliance, see real-time P&L, and get alerted on emergencies — all from a modern dark-mode dashboard with ADS-B tracking on a live map.
+### Phase 2 — Hardening & Polish (CURRENT)
 
-### Phase 2 — Production Hardening (2-3 weeks)
-- PWA offline mode (service worker, cached routes)
-- Email notifications (SendGrid/Resend)
-- QuickBooks sync (API integration)
-- PDF manifest/invoice generation
-- Multi-base support
-- audit log viewer in-app
-- Performance optimization
+- [ ] PostgreSQL production migration (currently using SQLite for dev)
+- [ ] PWA offline mode (service worker, cached routes) — frontend scaffold exists
+- [ ] Email notifications (SendGrid/Resend) — SMTP config exists, need actual integration
+- [ ] SMS notifications (Twilio) — config exists, need actual integration
+- [ ] QuickBooks sync (API integration)
+- [ ] PDF manifest/invoice/flight release generation
+- [ ] Multi-base support
+- [ ] In-app audit log viewer
+- [ ] Performance optimization (query tuning, indexing audit)
+- [ ] Test coverage expansion (auth tests exist, need more)
+- [ ] Delete lockdown — enforce draft-only delete on active/completed missions
+- [ ] Digital checklists — per-aircraft-type preflight/post-flight templates
+- [ ] Designated Part 135 positions management
+- [ ] Inventory/parts system
 
-### Phase 3 — Advanced (ongoing)
+### Phase 3 — Advanced (Future)
+
 - AI Help Desk full deployment (deep Hermes integration)
-- White-label + multi-tenant billing
-- SaaS billing (Stripe)
+- White-label + multi-tenant billing (Module 12)
+- SaaS billing (Stripe integration — config exists)
 - Advanced analytics & forecasting
-- SATCOM / iridium comms integration
+- SATCOM / Iridium comms integration
 - Custom reporting engine
+- Calendar integration (Google Calendar / iCal export)
 
 ---
 
 ## 10. Development Standards
 
 ### Python / Backend
-- Type hints everywhere — `mypy --strict` compliant
+- Type hints everywhere
 - Async endpoints (FastAPI async handlers)
-- Repository pattern for data access (services don't touch SQLAlchemy directly)
 - Pydantic v2 for all schemas
+- Repository/service pattern for data access
 - Unit tests with `pytest` + `httpx.AsyncClient`
 - Coverage target: 80%+
-- Black + Ruff for formatting/linting
+- Black + Ruff for formatting/linting (in pyproject.toml)
 
 ### TypeScript / Frontend
 - Strict mode TypeScript
 - React Query for all server state
-- Zustand for client-only state (ui state, form drafts)
 - React Router v7 for routing
-- Vitest + Testing Library for tests
-- Prettier + ESLint
+- shadcn/ui + Radix Primitives components
+- Maplibre GL for maps
+- Tailwind CSS 4 for styling
 
 ### Database
-- Alembic for migrations (always `down_revision` exists for rollback)
+- Alembic for migrations (always reversible)
 - All timestamps UTC
-- Soft deletes where possible (`deleted_at` column)
 - Indexes on all foreign keys + commonly queried columns
-- JSONB for flexible metadata (not EAV pattern)
-- Use ENUM types for bounded values (not magic strings)
+- JSONB for flexible metadata
+- Use ENUM types for bounded values
 
 ### Git
 - Branch: `main` (stable), `develop` (active), feature branches
 - Conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`
-- PRs require at minimum your own review before merge
 - Sqash-merge feature branches into develop
 
 ---
 
-## 11. Dependencies & Integrations
+## 11. Dependencies & Integrations (Actual)
 
-### MVP Required
-- **PostgreSQL 16** — primary database
-- **Minio / local filesystem** — document storage (swap to S3 later)
-- **Open-Meteo** — free weather API (no API key)
-- **OpenStreetMap / MapLibre** — free maps
+### Current
+- **PostgreSQL 16 / SQLite** — primary database
+- **AviationWeather.gov (NOAA/FAA ADDS)** — free METAR/TAF weather (no API key)
+- **FAA NMS API** — NOTAM retrieval (OAuth2, free with registration)
+- **OurAirports** — airport database (data imported locally)
+- **MapLibre GL** — maps (dark-matter style, free tile source)
+- **ADSB.lol / OpenSky Network** — live ADS-B aircraft tracking
+- **Local filesystem** — document storage (S3/Minio swap possible)
 
-### Phase 2
-- **ADSB.lol** — free ADS-B feed (no API key needed for basic)
-- **OpenSky Network** — additional ADS-B data
-- **Resend / SendGrid** — transactional email
-- **Stripe** — SaaS payments
-
-### Phase 3
-- **QuickBooks API** — accounting sync
-- **ICAO API** — airport database
-- **Your own dump1090** — if you run an ADS-B receiver
+### Configured but Not Yet Active
+- **Twilio** — SMS notifications (config exists, not wired)
+- **SMTP** — email notifications (config exists, not wired)
+- **Stripe** — SaaS payments (config exists, Phase 3)
 
 ---
 
@@ -990,24 +1237,32 @@ LICENSE_KEY=  # for self-hosted activation
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|-----------|
 | SQLite won't support concurrent writes | Medium | Low | Use PostgreSQL in production, SQLite only for single-user dev |
-| React PWA is overkill for MVP | Medium | Low | Start with shadcn/ui + SSR, add PWA shell later |
-| ADS-B integration is complex | Medium | Medium | Use ADSB.lol API (free, simple) — no dump1090 required |
 | Multi-tenant data isolation bug | Low | High | Each query scoped to `organization_id` — enforce at middleware level |
 | Offline sync is hard | High | Medium | Postpone full offline to Phase 2; use simple cached reads in MVP |
 | Regulatory compliance varies by country | Medium | Medium | Flexible document tagging system — don't hardcode any country logic |
+| ADS-B feed reliability | Low | Medium | Multiple data sources (ADSB.lol + OpenSky), graceful fallback |
+| FAA NMS API changes | Low | Medium | NOTAM service isolated behind `services/weather.py` — swap provider |
+| Flight release signoff race conditions | Low | Medium | Status-based state machine prevents double-signoff from conflicting gates |
 
 ---
 
-## 13. Next Steps
+## 13. Current State & Next Steps
 
-1. **You review this spec** — flag anything I got wrong, anything missing, anything you'd change
-2. **Grok reviews from your side** — domain validation, architecture feedback
-3. **We lock the spec** — sign off on the MVP scope
-4. **I scaffold the project** — backend skeleton, DB schema, Alembic migrations, Docker setup
-5. **Module 1 (Auth)** — full build-out, demo-able
-6. **Continue module-by-module** per the roadmap above
-7. **You test against real ops** — you're the domain expert, you validate
+**The specification has been signed off.** All Phase 1 modules are built and operational. The system currently runs on SQLite in development mode, has been tested with seed data for a Caribbean Part 135 operation (Nassau ↔ Haiti), and includes real-world AD data for the King Air 350/200, DHC-6 Twin Otter, and Basler BT-67 fleets.
 
----
+**Immediate priorities (Phase 2):**
+1. Migrate to PostgreSQL for production
+2. Wire up SMTP email notifications (config exists, backend ready)
+3. Wire up Twilio SMS for emergency alerts (config exists, backend ready)
+4. Add PDF generation for flight releases, manifests, and invoices
+5. Expand test coverage beyond auth tests
+6. Implement in-app audit log viewer
+7. Performance pass: query optimization, index review
 
-*"The only way to fly a complex operation is with a system that makes complexity invisible."*
+**Known gaps tracked in FEATURE_BACKLOG.md:**
+- Digital preflight/post-flight checklists
+- Designated Part 135 positions management (DO, Chief Pilot, DOM)
+- Inventory/parts system
+- Calendar integration (maintenance, crew duty, flight schedules)
+- Cost-per-flight-hour analytics
+- Utilization reports
