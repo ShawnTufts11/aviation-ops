@@ -65,6 +65,9 @@ async def list_airports(
     country: str | None = Query(None),
     has_customs: bool | None = Query(None),
     has_jet_a: bool | None = Query(None),
+    min_runway_ft: int | None = Query(None, alias="min_rwy"),
+    has_night_ops: bool | None = Query(None),
+    surface: str | None = Query(None, alias="surface"),
     current_user: User = Depends(require_org_membership),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -84,6 +87,13 @@ async def list_airports(
         query = query.where(Airport.has_customs == has_customs)
     if has_jet_a is not None:
         query = query.where(Airport.has_jet_a == has_jet_a)
+    if min_runway_ft is not None:
+        query = query.where(Airport.longest_runway_ft >= min_runway_ft)
+    if has_night_ops is not None:
+        query = query.where(Airport.has_night_ops == has_night_ops)
+    if surface:
+        like = f"%{surface}%"
+        query = query.where(Airport.runway_surface.ilike(like))
 
     query = query.order_by(Airport.country_code, Airport.icao_code)
 
@@ -96,8 +106,56 @@ async def list_airports(
     }
 
 
-# ── Get airport by ICAO ────────────────────────────────────────────────
+# ── Auto-lookup ─────────────────────────────────────────────────────────
 
+
+@router.get("/lookup/{icao_code}")
+async def lookup_airport(
+    icao_code: str,
+    current_user: User = Depends(require_org_membership),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Look up an airport by ICAO code from the public OurAirports database.
+
+    Returns mapped data ready for preview and manual override before saving.
+    Fuel prices, FBOs, hotels, and maintenance info are NOT available from
+    the public source — those require manual entry.
+    """
+    # Check DB first — return existing record with in_db flag
+    existing = await db.get(Airport, icao_code.upper())
+    if existing:
+        return {
+            "found": True,
+            "in_db": True,
+            "source": "database",
+            "data": AirportResponse.model_validate(existing).model_dump(),
+            "needs_manual": [],
+        }
+
+    result = await lookup_by_icao(icao_code)
+
+    if not result.found:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result.error or f"Airport {icao_code.upper()} not found in public database",
+        )
+
+    return {
+        "found": True,
+        "in_db": False,
+        "source": result.source,
+        "data": result_to_create_schema(result),
+        "needs_manual": [
+            "fuel_prices",
+            "fbo_options",
+            "hotel_options",
+            "ground_transport",
+            "maintenance_capability",
+            "runway_info",
+            "has_night_ops",
+        ],
+    }
 
 @router.get("/{icao_code}")
 async def get_airport(
@@ -110,9 +168,6 @@ async def get_airport(
     if not airport:
         raise HTTPException(status_code=404, detail="Airport not found")
     return AirportResponse.model_validate(airport)
-
-
-# ── Create airport ─────────────────────────────────────────────────────
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -150,6 +205,13 @@ async def create_airport(
         fuel_price_jet_a_usd=body.fuel_price_jet_a_usd,
         fuel_price_avgas_usd=body.fuel_price_avgas_usd,
         fuel_last_updated=body.fuel_last_updated,
+        landing_fee_usd=body.landing_fee_usd,
+        overnight_parking_usd=body.overnight_parking_usd,
+        handling_fee_usd=body.handling_fee_usd,
+        customs_fee_usd=body.customs_fee_usd,
+        overflight_permit_cost_usd=body.overflight_permit_cost_usd,
+        payment_type=body.payment_type or "mixed",
+        landing_notes=body.landing_notes,
         has_customs=body.has_customs,
         customs_hours=body.customs_hours,
         has_landing_permit_required=body.has_landing_permit_required,
@@ -249,40 +311,3 @@ async def calculate_distance(
     )
 
 
-# ── Auto-lookup ─────────────────────────────────────────────────────────
-
-
-@router.get("/lookup/{icao_code}")
-async def lookup_airport(
-    icao_code: str,
-    current_user: User = Depends(require_org_membership),
-) -> dict[str, Any]:
-    """
-    Look up an airport by ICAO code from the public OurAirports database.
-
-    Returns mapped data ready for preview and manual override before saving.
-    Fuel prices, FBOs, hotels, and maintenance info are NOT available from
-    the public source — those require manual entry.
-    """
-    result = await lookup_by_icao(icao_code)
-
-    if not result.found:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=result.error or f"Airport {icao_code.upper()} not found in public database",
-        )
-
-    return {
-        "found": True,
-        "source": result.source,
-        "data": result_to_create_schema(result),
-        "needs_manual": [
-            "fuel_prices",
-            "fbo_options",
-            "hotel_options",
-            "ground_transport",
-            "maintenance_capability",
-            "runway_info",
-            "has_night_ops",
-        ],
-    }
