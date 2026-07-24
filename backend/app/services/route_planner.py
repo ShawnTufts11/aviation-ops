@@ -34,7 +34,7 @@ from app.services.crew_duty import (
     duty_check_to_dict,
     CrewCheckResult,
 )
-from app.services.weather import get_metar, get_taf, weather_to_dict
+from app.services.weather import get_metar, get_taf, get_notams, weather_to_dict
 
 if TYPE_CHECKING:
     from app.models.aircraft import Aircraft
@@ -48,6 +48,12 @@ class LegPlan:
     leg_index: int
     origin_icao: str
     destination_icao: str
+
+    # Airport coordinates
+    origin_lat: float = 0.0
+    origin_lon: float = 0.0
+    dest_lat: float = 0.0
+    dest_lon: float = 0.0
 
     # Airport info
     origin_name: str = ""
@@ -78,6 +84,10 @@ class LegPlan:
     restrictions: list[dict] = field(default_factory=list)
     notes: str = ""
     weather: dict | None = None
+    notams: list[dict] = field(default_factory=list)
+
+    # Estimated cash costs (at destination)
+    estimated_cash_needed: float = 0.0
 
     # Flags
     flags: list[str] = field(default_factory=list)
@@ -108,6 +118,9 @@ class RoutePlan:
     overnight_required: bool = False
     crew_swap_required: bool = False
     fuel_stop_required: bool = False
+
+    # Estimated total cash needed across all legs
+    estimated_total_cash_needed: float = 0.0
 
 
 def _flag(leg: LegPlan, message: str, critical: bool = False) -> None:
@@ -152,6 +165,7 @@ async def plan_route(
     total_block_min = 0
     total_fuel = 0.0
     total_flight_min = 0
+    remaining_fuel_gal = 0.0  # Track cumulative fuel across legs
 
     for idx, (origin, destination, cruise_alt) in enumerate(legs):
         pax_count = (passenger_counts or [0] * len(legs))[idx]
@@ -163,6 +177,12 @@ async def plan_route(
             origin_name=origin.name,
             destination_name=destination.name,
             destination_city=destination.city or "",
+
+            # Coordinates
+            origin_lat=origin.latitude,
+            origin_lon=origin.longitude,
+            dest_lat=destination.latitude,
+            dest_lon=destination.longitude,
         )
 
         # ── Distance ──────────────────────────────────────────────────────
@@ -205,6 +225,12 @@ async def plan_route(
             _flag(leg, f"RNP required at {destination.icao_code} — not RNP capable", critical=True)
 
         # ── Weight & Balance ──────────────────────────────────────────────
+        # Track cumulative fuel burn across legs for realistic W&B
+        if leg.leg_index == 1:
+            remaining_fuel_gal = block.total_fuel_gal  # First leg: full fuel load
+
+        leg_burn_gal = block.cruise_fuel_gal + block.climb_fuel_gal + block.descent_fuel_gal
+        
         wb = await calculate_leg_wb(
             aircraft=aircraft,
             origin=origin.icao_code,
@@ -212,12 +238,15 @@ async def plan_route(
             leg_index=leg.leg_index,
             passenger_count=pax_count,
             cargo_kg=cargo_kg,
-            fuel_gal=block.total_fuel_gal,
-            fuel_burn_gal=block.cruise_fuel_gal + block.climb_fuel_gal + block.descent_fuel_gal,
+            fuel_gal=remaining_fuel_gal,
+            fuel_burn_gal=leg_burn_gal,
             taxi_fuel_gal=block.taxi_fuel_gal,
             crew_count=crew_count,
         )
         leg.wb = wb
+        
+        # Subtract this leg's burn for next leg's starting fuel
+        remaining_fuel_gal = max(0, remaining_fuel_gal - leg_burn_gal)
 
         if wb.overall_status == "over_limit":
             for note in wb.notes:
@@ -264,6 +293,15 @@ async def plan_route(
         if not destination.has_jet_a and aircraft.cruise_fuel_flow_gph:
             _flag(leg, f"No Jet-A at {destination.icao_code}", critical=True)
 
+        # ── Estimated cash needed (landing + parking + handling + customs) ─
+        leg.estimated_cash_needed = round(
+            (destination.landing_fee_usd or 0)
+            + (destination.overnight_parking_usd or 0)
+            + (destination.handling_fee_usd or 0)
+            + (destination.customs_fee_usd or 0),
+            2,
+        )
+
         for r in leg.restrictions:
             if r.get("type") == "security":
                 _flag(leg, f"SECURITY: {r['description']}", critical=False)
@@ -271,6 +309,11 @@ async def plan_route(
         # ── Weather ──────────────────────────────────────────────────────
         wx = await get_metar(destination.icao_code)
         leg.weather = weather_to_dict(wx)
+
+        # ── NOTAMs ──────────────────────────────────────────────────────
+        leg.notams = await get_notams(destination.icao_code)
+        if leg.notams:
+            leg.flags.append(f"{len(leg.notams)} NOTAM(s) at {destination.icao_code}")
 
         if leg.block and leg.block.total_block_time_min > 480:
             _flag(leg, "Leg exceeds 8hr — crew rest required", critical=True)
@@ -284,6 +327,9 @@ async def plan_route(
     plan.total_block_hours = round(total_block_min / 60, 2)
     plan.total_fuel_gal = round(total_fuel, 1)
     plan.total_flight_time_min = total_flight_min
+    plan.estimated_total_cash_needed = round(
+        sum(leg.estimated_cash_needed for leg in plan.legs), 2
+    )
 
     # ── Crew duty time ────────────────────────────────────────────────────
     plan.crew_duty = await check_crew_duty(
@@ -335,6 +381,10 @@ def route_plan_to_dict(plan: RoutePlan) -> dict[str, Any]:
                 "leg": leg.leg_index,
                 "origin": leg.origin_icao,
                 "destination": leg.destination_icao,
+                "origin_lat": leg.origin_lat,
+                "origin_lon": leg.origin_lon,
+                "dest_lat": leg.dest_lat,
+                "dest_lon": leg.dest_lon,
                 "origin_name": leg.origin_name,
                 "destination_name": leg.destination_name,
                 "destination_city": leg.destination_city,
@@ -385,7 +435,9 @@ def route_plan_to_dict(plan: RoutePlan) -> dict[str, Any]:
                     "restrictions": leg.restrictions,
                     "notes": leg.notes,
                     "weather": leg.weather,
+                    "notams": leg.notams[:10],
                 },
+                "estimated_cash_needed": leg.estimated_cash_needed,
             }
             for leg in plan.legs
         ],
@@ -395,6 +447,7 @@ def route_plan_to_dict(plan: RoutePlan) -> dict[str, Any]:
             "total_block_hours": plan.total_block_hours,
             "total_fuel_gal": plan.total_fuel_gal,
             "total_flight_time_min": plan.total_flight_time_min,
+            "estimated_total_cash_needed": plan.estimated_total_cash_needed,
         },
         "crew_duty": duty_check_to_dict(plan.crew_duty) if plan.crew_duty else None,
         "flags": {

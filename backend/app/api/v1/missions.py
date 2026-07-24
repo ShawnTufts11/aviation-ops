@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import select, desc, asc, func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,8 +27,42 @@ from app.schemas.mission import (
     ManifestEntryCreate, ManifestEntryResponse,
     FuelProfileCreate, FuelProfileResponse,
 )
+from app.services.crew_duty import check_crew_duty, duty_check_to_dict
+from app.services.weight_balance import (
+    calculate_leg_wb,
+    wb_to_dict,
+    JET_A_KG_PER_L,
+    JET_A_KG_PER_GAL,
+)
 
 router = APIRouter(prefix="/missions", tags=["missions"])
+
+
+# ── Request models for W&B and duty-check ─────────────────────
+
+
+class WeightBalanceRequest(BaseModel):
+    """Optional overrides for the per-leg W&B calculation."""
+    fuel_burn_gal: dict[int, float] | None = None
+
+
+class DutyCrewMember(BaseModel):
+    """Historical / cumulative data for a crew member on duty check."""
+    name: str
+    role: str
+    is_pilot: bool = True
+    last_duty_end: datetime | None = None
+    flight_time_24hr: float = 0.0
+    flight_time_quarter_hrs: float = 0.0
+    flight_time_two_quarter_hrs: float = 0.0
+    flight_time_year_hrs: float = 0.0
+
+
+class DutyCheckRequest(BaseModel):
+    """Optional overrides / historical data for crew duty check."""
+    crew_members: list[DutyCrewMember] | None = None
+    hypothetical_departure: datetime | None = None
+    is_two_pilot: bool | None = None
 
 
 # ── Fuel calculation helper ────────────────────────────────────
@@ -145,7 +180,7 @@ async def list_missions(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_mission(
     body: MissionCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> MissionResponse:
     """Create a new mission shell."""
@@ -188,7 +223,7 @@ async def get_mission(
 async def update_mission(
     mission_id: str,
     body: MissionUpdate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> MissionResponse:
     """Update mission (aircraft, crew, status)."""
@@ -211,15 +246,19 @@ async def update_mission(
 @router.delete("/{mission_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_mission(
     mission_id: str,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE])),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a draft mission."""
+    """Delete a mission. Audit-logged for compliance tracking."""
     mission = await db.get(Mission, mission_id)
     if not mission or mission.organization_id != current_user.organization_id:
         raise HTTPException(status_code=404, detail="Mission not found")
-    if mission.status != MissionStatus.DRAFT:
-        raise HTTPException(status_code=400, detail="Can only delete draft missions")
+    status_val = mission.status.value if hasattr(mission.status, 'value') else str(mission.status)
+    await log_action(
+        db=db, org_id=current_user.organization_id, user_id=current_user.id,
+        action="mission.deleted", entity_type="mission", entity_id=mission.id,
+        new_values={"status": status_val},
+    )
     await db.delete(mission)
     await db.commit()
 
@@ -231,7 +270,7 @@ async def delete_mission(
 async def add_leg(
     mission_id: str,
     body: LegCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> LegResponse:
     """Add a flight leg to a mission. Auto-calculates fuel if profile exists."""
@@ -282,7 +321,7 @@ async def update_leg(
     mission_id: str,
     leg_id: str,
     body: LegUpdate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> LegResponse:
     """Update a flight leg (status, times, fuel, NOTAMs)."""
@@ -331,7 +370,7 @@ async def add_manifest_entry(
     mission_id: str,
     leg_id: str,
     body: ManifestEntryCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> ManifestEntryResponse:
     """Add a passenger, crew, or cargo to a leg's manifest."""
@@ -367,7 +406,7 @@ async def add_manifest_entry(
                status_code=status.HTTP_204_NO_CONTENT)
 async def remove_manifest_entry(
     mission_id: str, leg_id: str, entry_id: str,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a manifest entry."""
@@ -404,7 +443,7 @@ async def list_fuel_profiles(
 async def set_fuel_profile(
     aircraft_id: str,
     body: FuelProfileCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> FuelProfileResponse:
     """Create or update fuel profile for an aircraft."""
@@ -433,3 +472,266 @@ async def set_fuel_profile(
     await db.commit()
     await db.refresh(profile)
     return FuelProfileResponse.model_validate(profile)
+
+
+# ── Weight & Balance ──────────────────────────────────────────
+
+
+@router.post("/{mission_id}/weight-balance")
+async def mission_weight_balance(
+    mission_id: str,
+    body: WeightBalanceRequest | None = None,
+    current_user: User = Depends(require_org_membership),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Calculate weight & balance for each leg of a planned mission.
+
+    Reads the mission's aircraft, all legs (with distances), and existing
+    manifests (passengers + cargo). Returns per-leg W&B reports plus a
+    mission-level summary.
+    """
+    mission = await db.get(Mission, mission_id)
+    if not mission or mission.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    if not mission.aircraft_id:
+        raise HTTPException(status_code=400, detail="Mission has no aircraft assigned")
+    if not mission.legs:
+        raise HTTPException(status_code=400, detail="Mission has no legs")
+
+    aircraft = await db.get(Aircraft, mission.aircraft_id)
+    if not aircraft:
+        raise HTTPException(status_code=404, detail="Aircraft not found")
+
+    body_data = body.model_dump() if body else {}
+    fuel_burn_overrides: dict[int, float] = body_data.get("fuel_burn_gal", {}) or {}
+
+    # Try to get the fuel profile for burn estimation
+    profile_row = await db.execute(
+        select(AircraftFuelProfile).where(
+            AircraftFuelProfile.aircraft_id == mission.aircraft_id
+        )
+    )
+    profile = profile_row.scalar_one_or_none()
+    if profile:
+        cruise_speed_kt = profile.cruise_speed_kt or aircraft.cruise_speed_kt or 180
+        cruise_burn_gph = profile.cruise_burn_lph * (JET_A_KG_PER_L / JET_A_KG_PER_GAL)
+    else:
+        cruise_speed_kt = aircraft.cruise_speed_kt or 180
+        cruise_burn_gph = float(aircraft.cruise_fuel_flow_gph or 50)
+
+    # Deterministic L→gal conversion factor (from weight_balance constants)
+    L_TO_GAL = JET_A_KG_PER_L / JET_A_KG_PER_GAL
+
+    crew_count = (1 if mission.pilot_in_command else 0) + (1 if mission.second_in_command else 0)
+    if crew_count == 0:
+        crew_count = 2  # sensible default
+
+    report_rows: list[dict[str, Any]] = []
+    totals: dict[str, Any] = {
+        "total_passengers": 0,
+        "total_cargo_kg": 0.0,
+        "legs_ok": 0,
+        "legs_warning": 0,
+        "legs_over_limit": 0,
+    }
+
+    # Track cumulative fuel burn across legs for realistic W&B
+    cumulative_fuel_burned_gal = 0.0
+
+    for leg in mission.legs:
+        # Tally manifest data for this leg
+        pax_count = 0
+        pax_weights: list[float] = []
+        cargo_kg = 0.0
+
+        for entry in leg.manifest_entries:
+            if entry.entry_type == "passenger":
+                pax_count += 1
+                if entry.weight_kg is not None:
+                    pax_weights.append(float(entry.weight_kg))
+            elif entry.entry_type in ("cargo", "baggage"):
+                if entry.weight_kg is not None:
+                    cargo_kg += float(entry.weight_kg)
+
+        # Fuel on board (L → gal)
+        fuel_l = leg.fuel_on_board_l or leg.fuel_required_l or 0.0
+        fuel_gal = fuel_l * L_TO_GAL
+
+        # Fuel burn for this leg
+        fuel_burn_gal = fuel_burn_overrides.get(leg.leg_number)
+        if fuel_burn_gal is None:
+            if leg.fuel_required_l and leg.fuel_required_l > 0:
+                fuel_burn_gal = leg.fuel_required_l * L_TO_GAL
+            elif leg.distance_nm and cruise_speed_kt:
+                flight_hrs = leg.distance_nm / cruise_speed_kt
+                fuel_burn_gal = round(flight_hrs * cruise_burn_gph, 1)
+            else:
+                fuel_burn_gal = fuel_gal * 0.5  # conservative default
+
+        wb = await calculate_leg_wb(
+            aircraft=aircraft,
+            origin=leg.departure_airport,
+            destination=leg.arrival_airport,
+            leg_index=leg.leg_number,
+            passenger_count=pax_count,
+            passenger_weights=pax_weights or None,
+            cargo_kg=cargo_kg,
+            fuel_gal=max(0, fuel_gal - cumulative_fuel_burned_gal),
+            fuel_burn_gal=fuel_burn_gal,
+            taxi_fuel_gal=None,
+            crew_count=crew_count,
+        )
+
+        # Track fuel consumed for realistic next-leg W&B
+        cumulative_fuel_burned_gal += fuel_burn_gal
+
+        wb_dict = wb_to_dict(wb)
+        wb_dict["leg_number"] = leg.leg_number
+        wb_dict["departure_airport"] = leg.departure_airport
+        wb_dict["arrival_airport"] = leg.arrival_airport
+        wb_dict["distance_nm"] = leg.distance_nm
+        report_rows.append(wb_dict)
+
+        totals["total_passengers"] += pax_count
+        totals["total_cargo_kg"] = round(totals["total_cargo_kg"] + cargo_kg, 1)
+        if wb.overall_status == "over_limit":
+            totals["legs_over_limit"] += 1
+        elif wb.overall_status == "warning":
+            totals["legs_warning"] += 1
+        else:
+            totals["legs_ok"] += 1
+
+    flagged = [
+        {"leg_number": r["leg_number"], "status": r["overall_status"], "notes": r["notes"]}
+        for r in report_rows
+        if r["overall_status"] in ("over_limit", "warning")
+    ]
+
+    return {
+        "mission_id": mission_id,
+        "aircraft_tail": aircraft.tail_number,
+        "leg_count": len(report_rows),
+        "legs": report_rows,
+        "summary": {
+            **totals,
+            "crew_count": crew_count,
+            "overall_mission_status": (
+                "over_limit" if totals["legs_over_limit"] > 0
+                else "warning" if totals["legs_warning"] > 0
+                else "ok"
+            ),
+            "flagged_legs": flagged,
+        },
+    }
+
+
+# ── Crew Duty Check ───────────────────────────────────────────
+
+
+@router.post("/{mission_id}/duty-check")
+async def mission_duty_check(
+    mission_id: str,
+    body: DutyCheckRequest | None = None,
+    current_user: User = Depends(require_org_membership),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Check FAR 135.267 crew duty time compliance for a mission.
+
+    Reads the mission's assigned crew (PIC / SIC) and all legs with their
+    flight times (actual, scheduled, or distance-estimated).  Returns per-crew
+    compliance status, mission-level legality, and any violations.
+
+    Optional body fields let you provide historical cumulative flight times
+    for more accurate compliance checking.
+    """
+    mission = await db.get(Mission, mission_id)
+    if not mission or mission.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    if not mission.legs:
+        raise HTTPException(status_code=400, detail="Mission has no legs")
+
+    body_data = body.model_dump() if body else {}
+    body_crew = body_data.get("crew_members")
+    hypothetical_departure = body_data.get("hypothetical_departure")
+    is_two_pilot_override = body_data.get("is_two_pilot")
+
+    # ── Compute total flight time ──────────────────────────────
+    total_flight_minutes = sum(
+        (leg.flight_time_minutes or 0) for leg in mission.legs
+    )
+    # Fallback to scheduled times when flight_time_minutes is not set
+    if total_flight_minutes == 0:
+        for leg in mission.legs:
+            if leg.scheduled_departure and leg.scheduled_arrival:
+                delta = (leg.scheduled_arrival - leg.scheduled_departure).total_seconds()
+                total_flight_minutes += int(delta / 60)
+    # Last resort: estimate from distance at 180 kt average
+    if total_flight_minutes == 0:
+        for leg in mission.legs:
+            if leg.distance_nm:
+                total_flight_minutes += int(leg.distance_nm / 180 * 60)
+
+    flight_time_hrs = round(total_flight_minutes / 60, 2)
+
+    is_two_pilot = (
+        is_two_pilot_override
+        if is_two_pilot_override is not None
+        else bool(mission.pilot_in_command) and bool(mission.second_in_command)
+    )
+
+    # ── Build crew list from mission data ──────────────────────
+    crew_members: list[dict[str, Any]] | None = None
+    if body_crew:
+        crew_members = [
+            {
+                "name": cm.name,
+                "role": cm.role,
+                "is_pilot": cm.is_pilot,
+                "last_duty_end": cm.last_duty_end,
+                "flight_time_24hr": cm.flight_time_24hr,
+                "flight_time_quarter_hrs": cm.flight_time_quarter_hrs,
+                "flight_time_two_quarter_hrs": cm.flight_time_two_quarter_hrs,
+                "flight_time_year_hrs": cm.flight_time_year_hrs,
+            }
+            for cm in body_crew
+        ]
+    elif mission.pilot_in_command or mission.second_in_command:
+        crew_members = []
+        if mission.pilot_in_command:
+            crew_members.append({
+                "name": mission.pilot_in_command,
+                "role": "captain",
+                "is_pilot": True,
+            })
+        if mission.second_in_command:
+            crew_members.append({
+                "name": mission.second_in_command,
+                "role": "first_officer",
+                "is_pilot": True,
+            })
+
+    # Determine departure time
+    departure = hypothetical_departure
+    if departure is None and mission.legs:
+        departure = mission.legs[0].scheduled_departure
+
+    result = await check_crew_duty(
+        mission_flight_time_hrs=flight_time_hrs,
+        mission_duty_period_hrs=None,
+        is_two_pilot=is_two_pilot,
+        crew_members=crew_members,
+        hypothetical_departure=departure,
+    )
+
+    output = duty_check_to_dict(
+        result,
+        is_two_pilot=is_two_pilot,
+        departure_time=departure.isoformat() if departure else None,
+    )
+    output["mission_id"] = mission_id
+    output["total_flight_time_hrs"] = flight_time_hrs
+    output["leg_count"] = len(mission.legs)
+
+    return output
