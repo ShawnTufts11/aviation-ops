@@ -169,7 +169,7 @@ async def update_passenger(
 @router.delete("/{passenger_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_passenger(
     passenger_id: str,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE])),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a passenger profile."""
@@ -202,7 +202,7 @@ async def quick_search(
             "id": p.id,
             "full_name": p.full_name,
             "nationality": p.nationality,
-            "passport_number": p.passport_number[:4] + "****" if p.passport_number else None,
+            "passport_number": (p.passport_number[:4] + "****" if p.passport_number else None) if has_pii_clearance(current_user) else None,
             "weight_kg": p.weight_kg,
         }
         for p in result.scalars().all()
