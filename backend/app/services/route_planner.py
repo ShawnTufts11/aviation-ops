@@ -118,6 +118,8 @@ class RoutePlan:
     overnight_required: bool = False
     crew_swap_required: bool = False
     fuel_stop_required: bool = False
+    weather_degraded: bool = False  # One or more legs have unavailable weather
+    adsb_degraded: bool = False     # ADS-B tracking data unavailable
 
     # Estimated total cash needed across all legs
     estimated_total_cash_needed: float = 0.0
@@ -309,6 +311,10 @@ async def plan_route(
         # ── Weather ──────────────────────────────────────────────────────
         wx = await get_metar(destination.icao_code)
         leg.weather = weather_to_dict(wx)
+        if wx.error:
+            _flag(leg, f"Weather data unavailable for {destination.icao_code}", critical=False)
+            plan.warnings.append(f"Weather degraded: {destination.icao_code} — {wx.error[:60]}")
+            plan.weather_degraded = True
 
         # ── NOTAMs ──────────────────────────────────────────────────────
         leg.notams = await get_notams(destination.icao_code)
@@ -454,6 +460,8 @@ def route_plan_to_dict(plan: RoutePlan) -> dict[str, Any]:
             "overnight_required": plan.overnight_required,
             "crew_swap_required": plan.crew_swap_required,
             "fuel_stop_required": plan.fuel_stop_required,
+            "weather_degraded": plan.weather_degraded,
+            "adsb_degraded": plan.adsb_degraded,
             "critical": plan.critical_flags,
             "warnings": plan.warnings,
         },

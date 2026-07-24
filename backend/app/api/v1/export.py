@@ -57,26 +57,45 @@ async def export_eapis(
     if not legs:
         raise HTTPException(status_code=400, detail="Mission has no legs")
 
-    # Gather all unique passengers across all legs
+    # Gather passengers per leg with boarding/deplaning context
+    leg_passengers: dict[int, list[dict]] = {}
     all_passengers: dict[str, dict] = {}
     for leg in legs:
+        lp = []
         for entry in leg.manifest_entries:
             if entry.entry_type != "passenger":
                 continue
-            key = entry.full_name  # dedup by name for now
+            pdata = {
+                "full_name": entry.full_name,
+                "date_of_birth": entry.date_of_birth.isoformat() if entry.date_of_birth else None,
+                "gender": entry.gender,
+                "nationality": entry.nationality,
+                "passport_number": entry.passport_number,
+                "passport_expiry": entry.passport_expiry.isoformat() if entry.passport_expiry else None,
+                "id_number": entry.id_number,
+                "weight_kg": entry.weight_kg,
+                "boarding_leg": entry.boarding_leg_number,
+                "deplaning_leg": entry.deplaning_leg_number,
+            }
+            lp.append(pdata)
+            key = entry.full_name
             if key not in all_passengers:
-                all_passengers[key] = {
-                    "full_name": entry.full_name,
-                    "date_of_birth": entry.date_of_birth.isoformat() if entry.date_of_birth else None,
-                    "gender": entry.gender,
-                    "nationality": entry.nationality,
-                    "passport_number": entry.passport_number,
-                    "passport_expiry": entry.passport_expiry.isoformat() if entry.passport_expiry else None,
-                    "id_number": entry.id_number,
-                    "weight_kg": entry.weight_kg,
-                    "boarding_leg": entry.boarding_leg_number,
-                    "deplaning_leg": entry.deplaning_leg_number,
-                }
+                all_passengers[key] = pdata
+        leg_passengers[leg.leg_number] = lp
+
+    # Detect passenger changes: which passengers are unique to each leg
+    leg_changes: dict[int, dict[str, list[str]]] = {}
+    prev_leg_passengers: set[str] = set()
+    for leg in legs:
+        current_set = {p["full_name"] for p in leg_passengers.get(leg.leg_number, [])}
+        boarded = current_set - prev_leg_passengers
+        deplaned = prev_leg_passengers - current_set
+        if boarded or deplaned:
+            leg_changes[leg.leg_number] = {
+                "boarded": sorted(boarded),
+                "deplaned": sorted(deplaned),
+            }
+        prev_leg_passengers = current_set
 
     # Get crew
     crew_info: list[dict] = []
@@ -107,7 +126,8 @@ async def export_eapis(
     eapis_legs = []
     for leg in legs:
         dest_country = _icao_to_country(leg.arrival_airport)
-        eapis_legs.append({
+        leg_pax = leg_passengers.get(leg.leg_number, [])
+        entry = {
             "leg": leg.leg_number,
             "departure": {
                 "airport": leg.departure_airport,
@@ -120,8 +140,13 @@ async def export_eapis(
                 "time_utc": leg.scheduled_arrival.strftime("%H:%M") if leg.scheduled_arrival else None,
             },
             "destination_country": dest_country,
-            "passenger_count": len([e for e in leg.manifest_entries if e.entry_type == "passenger"]),
-        })
+            "passenger_count": len(leg_pax),
+            "passengers": [p["full_name"] for p in leg_pax],
+        }
+        change = leg_changes.get(leg.leg_number)
+        if change:
+            entry["changes"] = change
+        eapis_legs.append(entry)
 
     return {
         "manifest": {
