@@ -136,25 +136,33 @@ def _release_to_dict(r: FlightRelease) -> dict[str, Any]:
         "est_enroute_minutes": r.est_enroute_minutes,
         "pic_id": r.pic_id,
         "sic_id": r.sic_id,
-        "pic_duty_current": r.pic_duty_current,
-        "sic_duty_current": r.sic_duty_current,
-        "pic_duty_7day": r.pic_duty_7day,
-        "sic_duty_7day": r.sic_duty_7day,
-        "duty_compliant": r.duty_compliant,
-        "fuel_plan": json.loads(r.fuel_plan_json) if r.fuel_plan_json else {},
-        "weather_brief": json.loads(r.weather_brief_json) if r.weather_brief_json else {},
-        "notams": json.loads(r.notams_json) if r.notams_json else {},
+        "pic_duty_start": r.pic_duty_start.isoformat() if r.pic_duty_start else None,
+        "pic_duty_end": r.pic_duty_end.isoformat() if r.pic_duty_end else None,
+        "sic_duty_start": r.sic_duty_start.isoformat() if r.sic_duty_start else None,
+        "sic_duty_end": r.sic_duty_end.isoformat() if r.sic_duty_end else None,
+        "duty_compliant": False,  # computed field — not stored on model
+        "fuel_plan": {
+            "ramp_lbs": r.ramp_fuel_lbs,
+            "trip_lbs": r.trip_fuel_lbs,
+            "contingency_lbs": r.contingency_fuel_lbs,
+            "alternate_lbs": r.alternate_fuel_lbs,
+            "final_reserve_lbs": r.reserve_fuel_lbs,
+            "fuel_on_arrival_lbs": r.arrival_fuel_lbs,
+            "legal": r.fuel_legal,
+        },
+        "weather_brief": r.weather_brief or {},
+        "notams": r.notam_refs or [],
         "safe_for_flight": r.safe_for_flight,
         "safe_for_flight_signed_by": r.safe_for_flight_signed_by,
         "safe_for_flight_signed_at": r.safe_for_flight_signed_at.isoformat() if r.safe_for_flight_signed_at else None,
         "mission_capability": r.mission_capability.value if r.mission_capability else "full",
         "mission_capability_restrictions": (
-            json.loads(r.mission_capability_restrictions_json)
-            if r.mission_capability_restrictions_json
+            r.maintenance_restrictions
+            if r.maintenance_restrictions
             else []
         ),
-        "gripes_open": json.loads(r.gripes_open_json) if r.gripes_open_json else [],
-        "gripes_deferred": json.loads(r.gripes_deferred_json) if r.gripes_deferred_json else [],
+        "gripes_open": r.gripes_open or [],
+        "gripes_deferred": r.gripes_deferred or [],
         "pic_accepted": r.pic_accepted,
         "pic_accepted_at": r.pic_accepted_at.isoformat() if r.pic_accepted_at else None,
         "pic_signed_at": r.pic_signed_at.isoformat() if r.pic_signed_at else None,
@@ -169,7 +177,7 @@ def _release_to_dict(r: FlightRelease) -> dict[str, Any]:
         "overwater_legs": r.overwater_legs,
         "etp_waypoint": r.etp_waypoint,
         "customs_status": r.customs_status,
-        "notes": r.notes or "",
+        "notes": "",  # notes field not stored on model — use mission_name
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         "amended_at": r.amended_at.isoformat() if r.amended_at else None,
