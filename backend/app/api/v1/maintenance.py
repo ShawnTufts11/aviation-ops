@@ -128,7 +128,7 @@ async def list_maintenance(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_maintenance(
     body: MaintenanceCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN, Role.MECHANIC])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.OPS_MANAGER, Role.MAINTENANCE_TECHNICIAN])),
     db: AsyncSession = Depends(get_db),
 ) -> MaintenanceResponse:
     """Create a new maintenance task for an aircraft.
@@ -184,7 +184,7 @@ async def get_maintenance(
 async def update_maintenance(
     task_id: str,
     body: MaintenanceUpdate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.MECHANIC])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.MAINTENANCE_TECHNICIAN])),
     db: AsyncSession = Depends(get_db),
 ) -> MaintenanceResponse:
     """Update a maintenance task (status, completion, notes)."""
@@ -223,7 +223,7 @@ async def update_maintenance(
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_maintenance(
     task_id: str,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE])),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a maintenance task (super_admin only)."""

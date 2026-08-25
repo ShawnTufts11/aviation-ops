@@ -180,7 +180,7 @@ Then visit `http://localhost:5173` for the frontend dashboard (backend API at `h
 - **Live Operation Center:** Real-time ADS-B tracking via MapLibre GL with 10 toggleable layers, weather radar overlay, NOTAM overlays, emergency alerts
 - **Weather & NOTAMs:** METAR/TAF via AviationWeather.gov, NOTAMs via FAA NMS API
 - **Financial Dashboard:** P&L per tail number, leg-level cost breakdown, estimated vs actual cost reconciliation
-- **Compliance:** Document registry with expiration tracking, compliance checklist per route, automated expiry alerts
+- **Compliance:** Document registry with expiration tracking, compliance checklist per route, automated expiry alerts. **Expiry Center** (`GET /api/v1/compliance/expiry-center`) aggregates aircraft/component/crew/qualification/document/AD-SB expiries into one read-only view, feeding the daily **Compliance Watch** Discord alert (08:20, #command-center). See `EXPIRY_CENTER_SCOPE.md`.
 - **Emergency Alerting:** One-tap escalation with WebSocket push, notification bus
 - **Morning Brief:** Role-gated 7-card ops briefing dashboard with current-day snapshot
 - **AI Help Desk:** In-app chat interface for operations assistance

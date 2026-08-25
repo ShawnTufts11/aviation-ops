@@ -648,6 +648,7 @@ All 11 Phase 1 modules are **built and operational**. Below is what was actually
 - Maintenance task library (scheduled/in_progress/completed/overdue/deferred)
 - Interval tracking (hours + calendar days)
 - AD/SB compliance tracker (`ad_compliance.py` — real ADs for King Air 350/200, DHC-6 Twin Otter, Basler BT-67)
+- Expiry Center (`GET /api/v1/compliance/expiry-center?window_days=30`) — read-only aggregation of aircraft expiries (registration/airworthiness/COA/insurance), component TBO (calendar + hours), crew license/medical/passport, qualifications, documents, and per-aircraft AD/SB summary. Powers the Discord Compliance Watch cron (daily 08:20). Phase 1 of `EXPIRY_CENTER_SCOPE.md`; Phase 3 (frontend page) and Phase 4 (computed pilot currency) pending.
   - Severity-grounded: critical (grounded), major (time-limited), minor (informational), optional (SB)
   - Compliance methods: one-time, recurring by hours, cycles, calendar, or both
 - Maintenance dashboard endpoint (due/overdue with color-coded alerts)

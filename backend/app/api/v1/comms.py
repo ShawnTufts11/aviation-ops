@@ -135,7 +135,7 @@ async def trigger_emergency(
     description: str | None = None,
     aircraft_id: str | None = None,
     flight_id: str | None = None,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN, Role.PILOT])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.OPS_MANAGER, Role.PILOT])),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Trigger an emergency alert. Creates dashboard banner + notifications."""
@@ -239,7 +239,7 @@ async def acknowledge_emergency(
 async def resolve_emergency(
     alert_id: str,
     notes: str = "",
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Resolve an emergency alert."""

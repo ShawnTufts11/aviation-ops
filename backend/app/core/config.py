@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     # ── CORS ──────────────────────────────────────────────────────────────
     CORS_ORIGINS: List[str] = ["*"]
 
+    # ── FAA NMS (NOTAM) API ───────────────────────────────────────────────
+    FAA_NMS_CLIENT_ID: str = ""
+    FAA_NMS_CLIENT_SECRET: str = ""
+    FAA_NMS_AUTH_URL: str = "https://api-staging.cgifederal-aim.com/v1/auth/token"
+    FAA_NMS_API_BASE: str = "https://api-staging.cgifederal-aim.com/nmsapi"
+
     # ── Environment ───────────────────────────────────────────────────────
     ENVIRONMENT: str = "dev"  # "dev" | "prod"
     INSTANCE_MODE: str = "self_hosted"  # "self_hosted" | "saas"

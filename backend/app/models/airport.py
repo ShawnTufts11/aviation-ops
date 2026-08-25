@@ -89,6 +89,36 @@ class Airport(Base):
         String(32), nullable=True, comment="Date fuel prices last verified (YYYY-MM-DD)"
     )
 
+    # ── Cost fields (landing, parking, handling, customs, overflight) ─────
+    landing_fee_usd: Mapped[float | None] = mapped_column(
+        Float, nullable=True, default=0,
+        comment="Typical landing fee for turboprop/light jet (USD)"
+    )
+    overnight_parking_usd: Mapped[float | None] = mapped_column(
+        Float, nullable=True, default=0,
+        comment="Per-night parking fee (USD)"
+    )
+    handling_fee_usd: Mapped[float | None] = mapped_column(
+        Float, nullable=True, default=0,
+        comment="Ramp handling fee (USD)"
+    )
+    customs_fee_usd: Mapped[float | None] = mapped_column(
+        Float, nullable=True, default=0,
+        comment="Customs/CIQ processing fee (USD)"
+    )
+    overflight_permit_cost_usd: Mapped[float | None] = mapped_column(
+        Float, nullable=True, default=0,
+        comment="Cost of overflight or landing permit (USD)"
+    )
+    payment_type: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default="mixed",
+        comment="Payment type: cash_only, credit, or mixed"
+    )
+    landing_notes: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Landing notes — e.g. 'Cash only before 5pm'"
+    )
+
     # ── Customs & compliance ──────────────────────────────────────────────
     has_customs: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False,

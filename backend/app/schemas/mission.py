@@ -118,6 +118,7 @@ class MissionResponse(BaseModel):
     second_in_command: Optional[str] = None
     mission_date: Optional[date] = None
     home_base: str
+    mission_number: Optional[str] = None
     notes: Optional[str] = None
     legs: list[LegResponse] = []
     created_at: datetime

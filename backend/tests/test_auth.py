@@ -213,21 +213,27 @@ def test_role_hierarchy():
     from app.core.roles import Role
 
     hierarchy = Role.hierarchy()
-    assert hierarchy[Role.SUPER_ADMIN] > hierarchy[Role.OPS_MANAGER]
-    assert hierarchy[Role.OPS_MANAGER] > hierarchy[Role.ADMIN]
-    assert hierarchy[Role.ADMIN] > hierarchy[Role.PILOT]
-    assert hierarchy[Role.PILOT] >= hierarchy[Role.MECHANIC]
-    assert hierarchy[Role.MECHANIC] > hierarchy[Role.READONLY]
+    # ── FAA Part 135 hierarchy ──────────────────────────────
+    assert hierarchy[Role.ACCOUNTABLE_EXECUTIVE] > hierarchy[Role.DIRECTOR_OF_OPERATIONS]
+    assert hierarchy[Role.DIRECTOR_OF_OPERATIONS] > hierarchy[Role.DIRECTOR_OF_SAFETY]
+    assert hierarchy[Role.DIRECTOR_OF_SAFETY] > hierarchy[Role.CHIEF_PILOT]
+    assert hierarchy[Role.CHIEF_PILOT] > hierarchy[Role.DIRECTOR_OF_MAINTENANCE]
+    assert hierarchy[Role.DIRECTOR_OF_MAINTENANCE] > hierarchy[Role.VP_FINANCE]
+    assert hierarchy[Role.VP_FINANCE] > hierarchy[Role.OPS_MANAGER]
+    assert hierarchy[Role.OPS_MANAGER] > hierarchy[Role.DISPATCHER]
+    assert hierarchy[Role.DISPATCHER] > hierarchy[Role.PILOT]
+    assert hierarchy[Role.PILOT] > hierarchy[Role.MAINTENANCE_TECHNICIAN]
+    assert hierarchy[Role.MAINTENANCE_TECHNICIAN] > hierarchy[Role.VIEWER]
 
 
 def test_role_privilege_check():
     """Verify has_privilege works correctly."""
     from app.core.roles import Role
 
-    assert Role.SUPER_ADMIN.has_privilege(Role.READONLY)
-    assert Role.OPS_MANAGER.has_privilege(Role.PILOT)
-    assert not Role.PILOT.has_privilege(Role.ADMIN)
-    assert not Role.READONLY.has_privilege(Role.MECHANIC)
+    assert Role.ACCOUNTABLE_EXECUTIVE.has_privilege(Role.VIEWER)
+    assert Role.DIRECTOR_OF_OPERATIONS.has_privilege(Role.PILOT)
+    assert not Role.PILOT.has_privilege(Role.OPS_MANAGER)
+    assert not Role.VIEWER.has_privilege(Role.MAINTENANCE_TECHNICIAN)
 
 
 # ── Security helpers ─────────────────────────────────────────────

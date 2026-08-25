@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Award, Phone, Mail, MapPin, Wrench, Plane } from 'lucide-react'
+import { ArrowLeft, Award, Phone, Mail, MapPin, Wrench, Plane, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import api from '@/lib/api'
+import { useAuthContext } from '@/features/auth/AuthContext'
 
 interface Qualification {
   id: string
@@ -57,11 +60,47 @@ const QUAL_LABELS: Record<string, string> = {
   first_aid: 'First Aid',
 }
 
+const QUAL_TYPES = [
+  'type_rating', 'proficiency_check', 'line_check', 'instrument_rating',
+  'recurrent_training', 'hazmat', 'dgr', 'first_aid',
+]
+
+function daysUntil(d: string): number {
+  return Math.ceil((new Date(d).getTime() - Date.now()) / 86400000)
+}
+
+function qualBorder(d: string | null): string {
+  if (!d) return 'border-border/50'
+  const days = daysUntil(d)
+  if (days < 30) return 'border-red-500/30'
+  if (days < 90) return 'border-amber-500/30'
+  return 'border-green-500/20'
+}
+
+function qualBadge(d: string | null): { text: string; cls: string } {
+  if (!d) return { text: 'No expiry', cls: 'bg-muted text-muted-foreground' }
+  const days = daysUntil(d)
+  if (days < 0) return { text: 'EXPIRED', cls: 'bg-red-500/10 text-red-500' }
+  if (days < 30) return { text: `${days}d left`, cls: 'bg-red-500/10 text-red-500' }
+  if (days < 90) return { text: `${days}d left`, cls: 'bg-amber-500/10 text-amber-500' }
+  return { text: `${days}d left`, cls: 'bg-green-500/10 text-green-500' }
+}
+
 export default function CrewDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [crew, setCrew] = useState<CrewDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const { user } = useAuthContext()
+  const canEdit = user?.role === 'super_admin' || user?.role === 'ops_manager'
+
+  // Add qual dialog
+  const [showAdd, setShowAdd] = useState(false)
+  const [qualType, setQualType] = useState('type_rating')
+  const [qualAcft, setQualAcft] = useState('')
+  const [qualIssued, setQualIssued] = useState('')
+  const [qualExpiry, setQualExpiry] = useState('')
+  const [qualBusy, setQualBusy] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -71,11 +110,28 @@ export default function CrewDetailPage() {
       .finally(() => setLoading(false))
   }, [id])
 
+  const handleAddQual = async () => {
+    setQualBusy(true)
+    try {
+      await api.post(`/api/v1/crew/${crew!.id}/qualifications`, {
+        qual_type: qualType,
+        aircraft_type: qualAcft || undefined,
+        issued_date: qualIssued || undefined,
+        expiry_date: qualExpiry || undefined,
+      })
+      setShowAdd(false)
+      setQualType('type_rating'); setQualAcft(''); setQualIssued(''); setQualExpiry('')
+      const res = await api.get(`/api/v1/crew/${id}`)
+      setCrew(res.data)
+    } catch { /* silent */ }
+    setQualBusy(false)
+  }
+
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" /></div>
   if (!crew) return null
 
   const authorizations = AUTHORIZATION_MATRIX[crew.role] || []
-  const isMedicalExpiring = crew.medical_expiry && new Date(crew.medical_expiry) < new Date(Date.now() + 30*86400000)
+  const isMedicalExpiring = crew.medical_expiry && new Date(crew.medical_expiry) < new Date(Date.now() + 30 * 86400000)
 
   return (
     <div className="space-y-6">
@@ -115,14 +171,16 @@ export default function CrewDetailPage() {
               <CardHeader><CardTitle className="text-base">Licenses & Medical</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <p><span className="text-muted-foreground">License: </span>{crew.license_number || '—'}</p>
-                <p><span className="text-muted-foreground">Expiry: </span>
-                  <span className={crew.license_expiry && new Date(crew.license_expiry) < new Date() ? 'text-red-500' : ''}>
-                    {crew.license_expiry || '—'}
-                  </span>
-                </p>
+                {crew.license_expiry && (
+                  <p><span className="text-muted-foreground">License Expiry: </span>
+                    <span className={new Date(crew.license_expiry) < new Date() ? 'font-medium text-red-500' : ''}>
+                      {new Date(crew.license_expiry).toLocaleDateString()} {new Date(crew.license_expiry) < new Date() ? '(EXPIRED)' : `(${daysUntil(crew.license_expiry)}d)`}
+                    </span>
+                  </p>
+                )}
                 <p><span className="text-muted-foreground">Medical: </span>
-                  <span className={isMedicalExpiring ? 'text-amber-500' : ''}>
-                    {crew.medical_expiry || '—'}
+                  <span className={isMedicalExpiring ? 'font-medium text-amber-500' : ''}>
+                    {crew.medical_expiry ? `${new Date(crew.medical_expiry).toLocaleDateString()} (${daysUntil(crew.medical_expiry)}d)` : '—'}
                   </span>
                 </p>
               </CardContent>
@@ -156,28 +214,87 @@ export default function CrewDetailPage() {
         </TabsContent>
 
         <TabsContent value="qualifications">
-          {crew.qualifications.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border py-12">
-              <Award className="h-8 w-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">No qualifications recorded</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">{crew.qualifications.length} qualification{crew.qualifications.length !== 1 ? 's' : ''}</p>
+              {canEdit && (
+                <Button size="sm" variant="outline" onClick={() => setShowAdd(true)}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" /> Add
+                </Button>
+              )}
             </div>
-          ) : (
-            <div className="space-y-3">
-              {crew.qualifications.map((q) => (
-                <Card key={q.id} className="border-border/50">
-                  <CardContent className="flex items-center justify-between p-4">
-                    <div>
-                      <p className="font-medium">{QUAL_LABELS[q.qual_type] || q.qual_type.replace(/_/g, ' ')}</p>
-                      {q.aircraft_type && <p className="text-sm text-muted-foreground">{q.aircraft_type}</p>}
-                    </div>
-                    <Badge variant={q.status === 'current' ? 'default' : 'outline'} className={q.status === 'expired' ? 'text-red-500' : q.status === 'expiring_soon' ? 'text-amber-500' : ''}>
-                      {q.status.replace('_', ' ')}
-                    </Badge>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+            {crew.qualifications.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border py-12">
+                <Award className="h-8 w-8 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">No qualifications recorded</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {crew.qualifications.map((q) => {
+                  const badge = qualBadge(q.expiry_date)
+                  return (
+                    <Card key={q.id} className={`border ${qualBorder(q.expiry_date)}`}>
+                      <CardContent className="flex items-center justify-between p-3">
+                        <div className="flex items-center gap-3">
+                          <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${badge.cls}`}>
+                            <Award className="h-4 w-4" />
+                          </span>
+                          <div>
+                            <p className="text-sm font-medium">{QUAL_LABELS[q.qual_type] || q.qual_type.replace(/_/g, ' ')}</p>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              {q.aircraft_type && <span>{q.aircraft_type}</span>}
+                              {q.issued_date && <span>Issued {new Date(q.issued_date).toLocaleDateString()}</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <Badge variant="outline" className={badge.cls}>{badge.text}</Badge>
+                          {q.expiry_date && (
+                            <p className="mt-0.5 text-[10px] text-muted-foreground">{new Date(q.expiry_date).toLocaleDateString()}</p>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <Dialog open={showAdd} onOpenChange={setShowAdd}>
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader><DialogTitle>Add Qualification</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">Type</label>
+                  <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={qualType} onChange={(e) => setQualType(e.target.value)}>
+                    {QUAL_TYPES.map((t) => (
+                      <option key={t} value={t}>{QUAL_LABELS[t] || t.replace(/_/g, ' ')}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">Aircraft Type</label>
+                  <Input placeholder="BT67, K35X, K200, T300" value={qualAcft} onChange={(e) => setQualAcft(e.target.value.toUpperCase())} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium">Issued</label>
+                    <Input type="date" value={qualIssued} onChange={(e) => setQualIssued(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium">Expiry</label>
+                    <Input type="date" value={qualExpiry} onChange={(e) => setQualExpiry(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" size="sm" onClick={() => setShowAdd(false)}>Cancel</Button>
+                  <Button size="sm" onClick={handleAddQual} disabled={qualBusy}>{qualBusy ? 'Adding...' : 'Add'}</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
       </Tabs>
     </div>

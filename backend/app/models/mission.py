@@ -53,6 +53,8 @@ class Mission(Base):
     mission_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     home_base: Mapped[str] = mapped_column(String(10), default="MYNN", nullable=False)
 
+    mission_number: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(

@@ -35,6 +35,8 @@ class RegisterRequest(BaseModel):
     phone: Optional[str] = None
     invite_code: Optional[str] = Field(None,
         description="Required for registration. Get one from your admin.")
+    selected_role: Optional[str] = Field(None,
+        description="Role to claim when invite_code has allowed_roles (optional — defaults to invite's role)")
 
 
 class RegisterResponse(BaseModel):
@@ -77,12 +79,16 @@ class MfaChallengeResponse(BaseModel):
 
 class InviteRequest(BaseModel):
     email: EmailStr
-    role: str = Field(..., pattern=r"^(ops_manager|admin|pilot|mechanic|dispatcher|readonly)$")
+    role: str = Field(..., pattern=r"^(ops_manager|admin|pilot|mechanic|dispatcher|readonly|viewer)$")
     display_name: str = Field(..., min_length=1, max_length=255,
         description="Pre-set name so they don't have to enter it")
     phone: Optional[str] = None
     required_notes: Optional[str] = Field(None,
         description="E.g. 'Must provide emergency contact and date of birth'")
+    granted_features: list[str] = Field(
+        default_factory=list,
+        description="Additional feature overrides granted to the user upon accepting",
+    )
 
 
 class InviteResponse(BaseModel):
@@ -91,6 +97,7 @@ class InviteResponse(BaseModel):
     display_name: str
     email: str
     role: str
+    granted_features: list[str] = []
     required_notes: Optional[str] = None
 
 
@@ -99,6 +106,8 @@ class AcceptInviteRequest(BaseModel):
     password: str = Field(..., min_length=8)
     display_name: str = Field(..., min_length=1, max_length=255)
     phone: Optional[str] = None
+    selected_role: Optional[str] = Field(None,
+        description="Role to claim when the invite offers multiple choices")
 
 
 # ── User ──────────────────────────────────────────────────────────
@@ -111,6 +120,8 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     mfa_enabled: bool
+    feature_overrides: list[str] = []
+    permissions_version: int = 1
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -120,6 +131,41 @@ class UserUpdateRequest(BaseModel):
     display_name: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
+
+
+# ── Permissions Management ───────────────────────────────────────
+
+class FeatureOverrideRequest(BaseModel):
+    feature_overrides: list[str] = Field(
+        ..., description="Complete list of feature overrides to set (replaces existing)"
+    )
+
+
+class UserPermissionsResponse(BaseModel):
+    """Detailed permissions view for a single user."""
+    id: str
+    email: str
+    display_name: str
+    role: str
+    is_active: bool
+    pii_clearance: bool
+    feature_overrides: list[str]
+    effective_features: list[str]
+    permissions_version: int
+    last_login: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RoleFeatureMatrixResponse(BaseModel):
+    """Complete feature-per-role matrix for frontend rendering."""
+    roles: dict[str, list[str]] = Field(
+        ..., description="Map of role_name → list of allowed feature strings"
+    )
+    all_features: list[str] = Field(
+        ..., description="Complete list of known features"
+    )
 
 
 # ── Organization ──────────────────────────────────────────────────

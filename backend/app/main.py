@@ -49,6 +49,13 @@ def _build_v1_router() -> FastAPI:
     from app.api.v1 import export
     from app.api.v1 import logbook
     from app.api.v1 import reports
+    from app.api.v1 import flight_releases
+    from app.api.v1 import weather_router
+    from app.api.v1 import maintenance_dashboard
+    from app.api.v1 import costs
+    from app.api.v1 import leg_costs
+    from app.api.v1 import briefing
+    from app.api.v1 import permissions
 
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(auth.router)
@@ -57,6 +64,7 @@ def _build_v1_router() -> FastAPI:
     api_v1.include_router(aircraft.router)
     api_v1.include_router(airports.router)
     api_v1.include_router(routes.router)
+    api_v1.include_router(maintenance_dashboard.router)
     api_v1.include_router(maintenance.router)
     api_v1.include_router(flights.router)
     api_v1.include_router(crew.router)
@@ -74,6 +82,12 @@ def _build_v1_router() -> FastAPI:
     api_v1.include_router(export.router)
     api_v1.include_router(logbook.router)
     api_v1.include_router(reports.router)
+    api_v1.include_router(flight_releases.router)
+    api_v1.include_router(weather_router.router)
+    api_v1.include_router(costs.router)
+    api_v1.include_router(leg_costs.router)
+    api_v1.include_router(briefing.router)
+    api_v1.include_router(permissions.router)
     return api_v1
 
 

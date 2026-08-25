@@ -63,6 +63,7 @@ class DutyCheckRequest(BaseModel):
     crew_members: list[DutyCrewMember] | None = None
     hypothetical_departure: datetime | None = None
     is_two_pilot: bool | None = None
+    leg_assignments: dict[str, list[int]] | None = None  # crew_name → [leg_numbers]
 
 
 # ── Fuel calculation helper ────────────────────────────────────
@@ -184,6 +185,9 @@ async def create_mission(
     db: AsyncSession = Depends(get_db),
 ) -> MissionResponse:
     """Create a new mission shell."""
+    from datetime import date as date_cls
+    today = date_cls.today()
+    short_id = str(uuid.uuid4())[:4].upper()
     mission = Mission(
         id=str(uuid.uuid4()),
         organization_id=current_user.organization_id,
@@ -192,6 +196,7 @@ async def create_mission(
         second_in_command=body.second_in_command,
         mission_date=body.mission_date,
         home_base=body.home_base,
+        mission_number=f"M-{today.month:02d}{today.day:02d}-{short_id}",
         notes=body.notes,
     )
     db.add(mission)
@@ -656,6 +661,7 @@ async def mission_duty_check(
     body_crew = body_data.get("crew_members")
     hypothetical_departure = body_data.get("hypothetical_departure")
     is_two_pilot_override = body_data.get("is_two_pilot")
+    leg_assignments: dict[str, list[int]] | None = body_data.get("leg_assignments")
 
     # ── Compute total flight time ──────────────────────────────
     total_flight_minutes = sum(
@@ -674,6 +680,16 @@ async def mission_duty_check(
                 total_flight_minutes += int(leg.distance_nm / 180 * 60)
 
     flight_time_hrs = round(total_flight_minutes / 60, 2)
+
+    # ── Build leg-to-flight-time lookup ─────────────────────────
+    leg_flight_times: dict[int, float] = {}
+    for leg in mission.legs:
+        leg_min = leg.flight_time_minutes
+        if not leg_min and leg.scheduled_departure and leg.scheduled_arrival:
+            leg_min = int((leg.scheduled_arrival - leg.scheduled_departure).total_seconds() / 60)
+        if not leg_min and leg.distance_nm:
+            leg_min = int(leg.distance_nm / 180 * 60)
+        leg_flight_times[leg.leg_number] = round((leg_min or 0) / 60, 2)
 
     is_two_pilot = (
         is_two_pilot_override
@@ -697,6 +713,19 @@ async def mission_duty_check(
             }
             for cm in body_crew
         ]
+
+        # If leg_assignments provided, calculate per-crew flight time
+        # from their assigned legs instead of total mission time
+        if leg_assignments:
+            for cm in crew_members:
+                assigned_legs = leg_assignments.get(cm["name"], [])
+                if assigned_legs:
+                    crew_hrs = sum(
+                        leg_flight_times.get(leg_num, 0)
+                        for leg_num in assigned_legs
+                    )
+                    cm["flight_time_24hr"] = cm.get("flight_time_24hr", 0) + crew_hrs
+                    cm["flight_time_quarter_hrs"] = cm.get("flight_time_quarter_hrs", 0) + crew_hrs
     elif mission.pilot_in_command or mission.second_in_command:
         crew_members = []
         if mission.pilot_in_command:

@@ -1,5 +1,6 @@
 """
 Aviation weather service — METAR/TAF via AviationWeather.gov (NOAA/FAA ADDS).
+NOTAM retrieval via FAA NMS API (OAuth2, free with registration).
 
 Free, no API key, no registration, no rate limits. Production FAA data.
 Provides real aviation weather: visibility, ceiling, flight category,
@@ -228,3 +229,74 @@ def weather_to_dict(wx: AviationWeather) -> dict[str, Any]:
         "source": wx.source,
         "error": wx.error if wx.error else None,
     }
+
+
+# ── NOTAM via FAA NMS API ──────────────────────────────────────────────
+
+_NOTAM_TOKEN: str | None = None
+_NOTAM_TOKEN_EXPIRY: float = 0
+
+
+async def _get_notam_token() -> str:
+    """Get a fresh OAuth2 bearer token from the FAA NMS API."""
+    global _NOTAM_TOKEN, _NOTAM_TOKEN_EXPIRY
+    import time
+    if _NOTAM_TOKEN and time.time() < _NOTAM_TOKEN_EXPIRY:
+        return _NOTAM_TOKEN
+
+    from app.core.config import settings
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            settings.FAA_NMS_AUTH_URL,
+            data={"grant_type": "client_credentials"},
+            auth=(settings.FAA_NMS_CLIENT_ID, settings.FAA_NMS_CLIENT_SECRET),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _NOTAM_TOKEN = data["access_token"]
+        _NOTAM_TOKEN_EXPIRY = time.time() + int(data.get("expires_in", 3600)) - 60
+    return _NOTAM_TOKEN
+
+
+async def get_notams(icao: str, radius_nm: int = 50) -> list[dict]:
+    """
+    Fetch NOTAMs for an airport via the FAA NMS API.
+
+    Returns a list of NOTAM dicts with keys: id, message, location, type,
+    start_time, end_time. Empty list on any error.
+    """
+    try:
+        token = await _get_notam_token()
+        from app.core.config import settings
+
+        params = {"location": icao.upper(), "radius": str(radius_nm)}
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{settings.FAA_NMS_API_BASE}/v1/notam",
+                params=params,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            )
+            if resp.status_code == 404:
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+
+        # Normalise response (varies by endpoint)
+        items = data.get("items", data.get("notams", data.get("data", [])))
+        if not isinstance(items, list):
+            return []
+
+        results = []
+        for n in items:
+            if isinstance(n, dict):
+                results.append({
+                    "id": n.get("id") or n.get("notamID", ""),
+                    "message": n.get("message") or n.get("notam", "") or str(n.get("text", "")),
+                    "location": n.get("location") or icao.upper(),
+                    "type": n.get("type") or n.get("purpose", ""),
+                    "start": n.get("startTime") or n.get("start_time", ""),
+                    "end": n.get("endTime") or n.get("end_time", ""),
+                })
+        return results
+    except Exception:
+        return []

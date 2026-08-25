@@ -14,9 +14,13 @@ from app.api.deps import get_current_user, get_db
 from app.core.audit import log_action
 from app.core.permissions import require_org_membership, require_role
 from app.core.roles import Role
+from app.models.aircraft import Aircraft
+from app.models.crew import CrewMember
 from app.models.document import Document, DocumentStatus, DocumentType
+from app.models.maintenance import MaintenanceTask
 from app.models.user import User
 from app.schemas.document import DocumentCreate, DocumentResponse, DocumentUpdate
+from app.services.ad_compliance import check_aircraft_compliance, ad_status_to_dict
 
 router = APIRouter(prefix="/compliance", tags=["compliance"])
 
@@ -74,7 +78,7 @@ async def list_documents(
 @router.post("/documents", status_code=status.HTTP_201_CREATED)
 async def create_document(
     body: DocumentCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentResponse:
     """Upload a new compliance document."""
@@ -132,7 +136,7 @@ async def get_document(
 async def update_document(
     doc_id: str,
     body: DocumentUpdate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentResponse:
     """Update document fields."""
@@ -158,7 +162,7 @@ async def update_document(
 @router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     doc_id: str,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE])),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a document."""
@@ -230,4 +234,210 @@ async def compliance_dashboard(
         "current_count": by_status.get("current", 0),
         "expiring_count": by_status.get("expiring_soon", 0),
         "expired_count": by_status.get("expired", 0),
+    }
+
+
+# ── Expiry Center — unified cross-source aggregation ────────────────
+# Phase 1 (2026-08-25): read-only merge of aircraft / component / crew /
+# qualification / document / AD-SB expiry data. No schema changes.
+# See EXPIRY_CENTER_SCOPE.md.
+
+_AIRCRAFT_EXPIRY_FIELDS = [
+    ("registration_expiry", "Registration"),
+    ("airworthiness_expiry", "Airworthiness"),
+    ("coa_expiry", "COA"),
+    ("insurance_expiry", "Insurance"),
+]
+
+_CREW_EXPIRY_FIELDS = [
+    ("license_expiry", "License"),
+    ("medical_expiry", "Medical"),
+    ("passport_expiry", "Passport"),
+]
+
+_SOURCE_TIPS = {
+    "aircraft": "Renew before the date — aircraft is not airworthy without it.",
+    "component": "Schedule overhaul before the date.",
+    "component_hours": "TBO hours reached — schedule overhaul now.",
+    "crew": "Renew before the date — not current for operations.",
+    "qualification": "Complete recurrent training before the date.",
+    "document": "Renew/replace before the date.",
+}
+
+
+def _tip(source: str) -> str:
+    return _SOURCE_TIPS.get(source, "Check before the date.")
+
+
+@router.get("/expiry-center")
+async def expiry_center(
+    window_days: int = Query(30, ge=7, le=365),
+    current_user: User = Depends(require_org_membership),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Unified expiry view: aircraft, components, crew, quals, documents, AD/SB.
+
+    Returns `expiring` (within window_days) and `expired` lists sorted by
+    days_left ascending, per-source counts, and a per-aircraft AD/SB summary
+    (hours-based, kept separate from date-based items).
+    """
+    org_id = current_user.organization_id
+    today = date.today()
+
+    items: list[dict[str, Any]] = []
+
+    # ── Aircraft date-based expiries ──────────────────────────────────
+    ac_result = await db.execute(
+        select(Aircraft).where(Aircraft.organization_id == org_id)
+    )
+    aircraft_list = list(ac_result.scalars().all())
+
+    for ac in aircraft_list:
+        for field, label in _AIRCRAFT_EXPIRY_FIELDS:
+            exp = getattr(ac, field)
+            if exp:
+                items.append({
+                    "source": "aircraft",
+                    "entity": ac.tail_number,
+                    "entity_id": ac.id,
+                    "item": label,
+                    "expiry_date": exp,
+                    "reminder_days": 30,
+                    "tip": _tip("aircraft"),
+                })
+
+        # ── Component TBO limits ──────────────────────────────────────
+        for comp in ac.components:
+            if comp.tbo_calendar_days and comp.installed_date:
+                due = comp.installed_date + timedelta(days=comp.tbo_calendar_days)
+                items.append({
+                    "source": "component",
+                    "entity": ac.tail_number,
+                    "entity_id": comp.id,
+                    "item": f"{comp.name} calendar TBO ({comp.tbo_calendar_days}d)",
+                    "expiry_date": due,
+                    "reminder_days": 30,
+                    "tip": _tip("component"),
+                })
+            if comp.tbo_hours is not None and comp.hours_since_overhaul is not None:
+                hours_remain = float(comp.tbo_hours) - float(comp.hours_since_overhaul)
+                if hours_remain <= 0:
+                    items.append({
+                        "source": "component_hours",
+                        "entity": ac.tail_number,
+                        "entity_id": comp.id,
+                        "item": f"{comp.name} TBO ({float(comp.tbo_hours):.0f} hr)",
+                        "expiry_date": None,  # hours-based, not a date
+                        "hours_overdue": round(-hours_remain, 1),
+                        "days_left": None,
+                        "reminder_days": 0,
+                        "tip": _tip("component_hours"),
+                    })
+
+    # ── Crew date-based expiries ─────────────────────────────────────
+    crew_result = await db.execute(
+        select(CrewMember).where(CrewMember.organization_id == org_id)
+    )
+    for c in crew_result.scalars().all():
+        for field, label in _CREW_EXPIRY_FIELDS:
+            exp = getattr(c, field)
+            if exp:
+                items.append({
+                    "source": "crew",
+                    "entity": c.display_name,
+                    "entity_id": c.id,
+                    "item": label,
+                    "expiry_date": exp,
+                    "reminder_days": 45 if label == "Medical" else 60 if label == "Passport" else 30,
+                    "tip": _tip("crew"),
+                })
+        for q in c.qualifications:
+            if q.expiry_date:
+                items.append({
+                    "source": "qualification",
+                    "entity": c.display_name,
+                    "entity_id": q.id,
+                    "item": f"{q.qual_type.value} {q.aircraft_type or ''}".strip(),
+                    "expiry_date": q.expiry_date,
+                    "reminder_days": 30,
+                    "tip": _tip("qualification"),
+                })
+
+    # ── Documents ─────────────────────────────────────────────────────
+    doc_result = await db.execute(
+        select(Document).where(
+            Document.organization_id == org_id,
+            Document.expiry_date.is_not(None),
+        )
+    )
+    for d in doc_result.scalars().all():
+        items.append({
+            "source": "document",
+            "entity": d.title,
+            "entity_id": d.id,
+            "item": d.doc_type.value,
+            "expiry_date": d.expiry_date,
+            "reminder_days": d.reminder_days or 30,
+            "tip": _tip("document"),
+        })
+
+    # ── Partition into expiring / expired (date-based only) ───────────
+    expiring: list[dict[str, Any]] = []
+    expired: list[dict[str, Any]] = []
+    hours_overdue: list[dict[str, Any]] = []
+    for it in items:
+        if it.get("expiry_date") is None:
+            if it.get("hours_overdue"):
+                hours_overdue.append(it)
+            continue
+        days_left = (it["expiry_date"] - today).days
+        it["days_left"] = days_left
+        if days_left < 0:
+            expired.append(it)
+        elif days_left <= window_days:
+            expiring.append(it)
+
+    expiring.sort(key=lambda x: x["days_left"])
+    expired.sort(key=lambda x: x["days_left"])
+    hours_overdue.sort(key=lambda x: x["hours_overdue"], reverse=True)
+
+    # ── AD/SB summary per aircraft (hours-based, separate section) ────
+    ad_summary: list[dict[str, Any]] = []
+    for ac in aircraft_list:
+        tasks_result = await db.execute(
+            select(MaintenanceTask).where(
+                MaintenanceTask.aircraft_id == ac.id,
+                MaintenanceTask.task_type.in_(["ad", "sb"]),
+                MaintenanceTask.organization_id == org_id,
+            )
+        )
+        compliance_records = []
+        for task in tasks_result.scalars().all():
+            compliance_records.append({
+                "reference": task.reference or "",
+                "status": task.status.value if hasattr(task.status, "value") else task.status,
+                "completed_date": task.completed_date,
+                "completed_hours": task.completed_hours,
+                "completed_cycles": task.completed_cycles,
+            })
+        ad_status = await check_aircraft_compliance(ac, compliance_records)
+        ad_summary.append(ad_status_to_dict(ad_status))
+
+    by_source: dict[str, int] = {}
+    for it in expiring + expired + hours_overdue:
+        by_source[it["source"]] = by_source.get(it["source"], 0) + 1
+
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "window_days": window_days,
+        "summary": {
+            "expiring": len(expiring),
+            "expired": len(expired),
+            "hours_overdue": len(hours_overdue),
+            "by_source": by_source,
+        },
+        "expiring": expiring,
+        "expired": expired,
+        "hours_overdue": hours_overdue,
+        "ad_summary": ad_summary,
     }

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -29,9 +29,28 @@ class InviteCode(Base):
         comment="If set, user joins this org. If null, code creates a new org.",
     )
     role: Mapped[str] = mapped_column(
-        String(32), default="admin", nullable=False,
+        String(32), default="viewer", nullable=False,
         comment="Role granted (admin for new-org invites, pilot/dispatcher etc. for joining)",
     )
+
+    # ── Multi-role / feature-scoped invites ───────────────────────────────
+    allowed_roles: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True,
+        comment="List of roles the invitee can choose from (null = single role only)",
+    )
+    granted_features: Mapped[list[str]] = mapped_column(
+        JSON, default=list, nullable=False,
+        comment="Additional feature overrides granted to the user upon accepting (e.g. [\"pii:access\"])",
+    )
+    max_uses: Mapped[int] = mapped_column(
+        Integer, default=1, nullable=False,
+        comment="Maximum number of times this code can be used (1 = single-use, 0 = unlimited)",
+    )
+    use_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False,
+        comment="Number of times this code has been used",
+    )
+
     description: Mapped[str | None] = mapped_column(
         Text, nullable=True,
         comment="Internal note about what this invite code is for",

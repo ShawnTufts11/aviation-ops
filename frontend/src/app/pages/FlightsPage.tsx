@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react'
-import { History, Plus, Plane, PlaneTakeoff, PlaneLanding, XCircle } from 'lucide-react'
+import { History, Plus, Plane, PlaneTakeoff, PlaneLanding, XCircle, DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -63,6 +63,20 @@ export default function FlightsPage() {
   const [pax, setPax] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [mxWarnings, setMxWarnings] = useState<string[]>([])
+
+  // Cost reconciliation state
+  const [showCostDialog, setShowCostDialog] = useState(false)
+  const [costFlight, setCostFlight] = useState<Flight | null>(null)
+  const [estimatedCosts, setEstimatedCosts] = useState<{
+    legs: { origin: string; destination: string; landing_fee_usd: number; overnight_parking_usd: number; handling_fee_usd: number; customs_fee_usd: number; estimated_cash_needed: number }[]
+    estimated_total_cash_needed: number
+  } | null>(null)
+  const [actualLanding, setActualLanding] = useState('')
+  const [actualParking, setActualParking] = useState('')
+  const [actualHandling, setActualHandling] = useState('')
+  const [actualCustoms, setActualCustoms] = useState('')
+  const [costSaving, setCostSaving] = useState(false)
+  const [costError, setCostError] = useState<string | null>(null)
 
   // Run pre-flight checks when aircraft + route selected
   useEffect(() => {
@@ -131,6 +145,97 @@ export default function FlightsPage() {
       await api.patch(`/api/v1/flights/${id}`, { status })
       await fetchData()
     } catch { /* silent */ }
+  }
+
+  const handleOpenCosts = async (f: Flight) => {
+    setCostFlight(f)
+    setActualLanding('')
+    setActualParking('')
+    setActualHandling('')
+    setActualCustoms('')
+    setCostError(null)
+    setCostSaving(false)
+    setEstimatedCosts(null)
+    setShowCostDialog(true)
+
+    // Try to get estimated costs from route planner
+    try {
+      const res = await api.post('/api/v1/routes/plan', {
+        flight_id: f.id,
+      })
+      if (res.data?.estimated_total_cash_needed) {
+        const legs = (res.data.legs || []).map((leg: Record<string, unknown>) => ({
+          origin: (leg.origin as string) || '',
+          destination: (leg.destination as string) || '',
+          landing_fee_usd: (leg.landing_fee_usd as number) || 0,
+          overnight_parking_usd: (leg.overnight_parking_usd as number) || 0,
+          handling_fee_usd: (leg.handling_fee_usd as number) || 0,
+          customs_fee_usd: (leg.customs_fee_usd as number) || 0,
+          estimated_cash_needed: (leg.estimated_cash_needed as number) || 0,
+        }))
+        setEstimatedCosts({
+          legs,
+          estimated_total_cash_needed: res.data.estimated_total_cash_needed as number,
+        })
+      } else {
+        // Fallback: build from departure/arrival airports
+        setEstimatedCosts({
+          legs: [{
+            origin: f.departure_airport,
+            destination: f.arrival_airport,
+            landing_fee_usd: 250,
+            overnight_parking_usd: 0,
+            handling_fee_usd: 200,
+            customs_fee_usd: 50,
+            estimated_cash_needed: 500,
+          }],
+          estimated_total_cash_needed: 500,
+        })
+      }
+    } catch {
+      // Fallback estimate
+      setEstimatedCosts({
+        legs: [{
+          origin: f.departure_airport,
+          destination: f.arrival_airport,
+          landing_fee_usd: 250,
+          overnight_parking_usd: 0,
+          handling_fee_usd: 200,
+          customs_fee_usd: 50,
+          estimated_cash_needed: 500,
+        }],
+        estimated_total_cash_needed: 500,
+      })
+    }
+
+    // Also try to fetch existing actual costs
+    try {
+      const costsRes = await api.get(`/api/v1/flights/${f.id}/costs`)
+      if (costsRes.data?.actual) {
+        setActualLanding(String(costsRes.data.actual.landing_fee_usd || ''))
+        setActualParking(String(costsRes.data.actual.overnight_parking_usd || ''))
+        setActualHandling(String(costsRes.data.actual.handling_fee_usd || ''))
+        setActualCustoms(String(costsRes.data.actual.customs_fee_usd || ''))
+      }
+    } catch { /* silent */ }
+  }
+
+  const handleSaveActuals = async () => {
+    if (!costFlight) return
+    setCostSaving(true)
+    setCostError(null)
+    try {
+      await api.post(`/api/v1/flights/${costFlight.id}/actual-costs`, {
+        landing_fee_usd: parseFloat(actualLanding) || 0,
+        overnight_parking_usd: parseFloat(actualParking) || 0,
+        handling_fee_usd: parseFloat(actualHandling) || 0,
+        customs_fee_usd: parseFloat(actualCustoms) || 0,
+      })
+      setShowCostDialog(false)
+    } catch {
+      setCostError('Failed to save actual costs. Is the backend running?')
+    }
+    setCostSaving(false)
   }
 
   return (
@@ -212,6 +317,9 @@ export default function FlightsPage() {
                         </div>
                       </div>
                       <div className="flex shrink-0 gap-2">
+                        <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => handleOpenCosts(f)}>
+                          <DollarSign className="mr-1 h-3.5 w-3.5" /> Costs
+                        </Button>
                         {f.status === 'scheduled' && (
                           <>
                             <Button size="sm" variant="outline" className="text-green-500" onClick={() => handleStatus(f.id, 'active')}>
@@ -300,6 +408,195 @@ export default function FlightsPage() {
               <Button type="submit" disabled={submitting}>{submitting ? 'Scheduling...' : 'Schedule Flight'}</Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cost Reconciliation Dialog */}
+      <Dialog open={showCostDialog} onOpenChange={setShowCostDialog}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Cost Reconciliation</DialogTitle>
+            <DialogDescription>
+              {costFlight ? `${costFlight.departure_airport} → ${costFlight.arrival_airport}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          {estimatedCosts && (
+            <div className="space-y-4">
+              {/* Estimated Costs */}
+              <div>
+                <h4 className="mb-2 text-sm font-medium text-muted-foreground">Estimated Costs</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-border/50 text-muted-foreground">
+                        <th className="py-1.5 pr-2 font-medium text-xs">Route</th>
+                        <th className="py-1.5 pr-2 font-medium text-xs">Landing</th>
+                        <th className="py-1.5 pr-2 font-medium text-xs">Parking</th>
+                        <th className="py-1.5 pr-2 font-medium text-xs">Handling</th>
+                        <th className="py-1.5 pr-2 font-medium text-xs">Customs</th>
+                        <th className="py-1.5 font-medium text-xs">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {estimatedCosts.legs.map((leg, i) => (
+                        <tr key={i} className="border-b border-border/20">
+                          <td className="py-1.5 pr-2 text-xs font-medium">{leg.origin}→{leg.destination}</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${leg.landing_fee_usd}</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${leg.overnight_parking_usd}</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${leg.handling_fee_usd}</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${leg.customs_fee_usd}</td>
+                          <td className="py-1.5 font-mono text-xs font-medium">${leg.estimated_cash_needed}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-border/50 font-medium">
+                        <td colSpan={5} className="py-1.5 pr-2 text-right text-xs">Total Estimated:</td>
+                        <td className="py-1.5 font-mono text-xs font-bold">${estimatedCosts.estimated_total_cash_needed}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              <hr className="border-border/30" />
+
+              {/* Actual Costs Form */}
+              <div>
+                <h4 className="mb-2 text-sm font-medium text-muted-foreground">Actual Costs Incurred</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Landing Fee ($)</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="0.00"
+                      value={actualLanding}
+                      onChange={(e) => setActualLanding(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Parking ($)</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="0.00"
+                      value={actualParking}
+                      onChange={(e) => setActualParking(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Handling ($)</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="0.00"
+                      value={actualHandling}
+                      onChange={(e) => setActualHandling(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Customs ($)</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="0.00"
+                      value={actualCustoms}
+                      onChange={(e) => setActualCustoms(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Variance */}
+              {(() => {
+                const aLand = parseFloat(actualLanding) || 0
+                const aPark = parseFloat(actualParking) || 0
+                const aHand = parseFloat(actualHandling) || 0
+                const aCust = parseFloat(actualCustoms) || 0
+                const actualTotal = aLand + aPark + aHand + aCust
+                const totalEst = estimatedCosts.estimated_total_cash_needed
+                const variance = actualTotal - totalEst
+                return (
+                  <div>
+                    <h4 className="mb-2 text-sm font-medium text-muted-foreground">Variance</h4>
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-border/50 text-muted-foreground">
+                          <th className="py-1.5 pr-2 font-medium text-xs">Category</th>
+                          <th className="py-1.5 pr-2 font-medium text-xs">Estimated</th>
+                          <th className="py-1.5 pr-2 font-medium text-xs">Actual</th>
+                          <th className="py-1.5 font-medium text-xs">Variance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-b border-border/20">
+                          <td className="py-1.5 pr-2 text-xs">Landing Fee</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${estimatedCosts.legs.reduce((s, l) => s + l.landing_fee_usd, 0)}</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${aLand}</td>
+                          <td className={`py-1.5 font-mono text-xs ${aLand - estimatedCosts.legs.reduce((s, l) => s + l.landing_fee_usd, 0) > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                            ${(aLand - estimatedCosts.legs.reduce((s, l) => s + l.landing_fee_usd, 0)).toFixed(2)}
+                          </td>
+                        </tr>
+                        <tr className="border-b border-border/20">
+                          <td className="py-1.5 pr-2 text-xs">Parking</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${estimatedCosts.legs.reduce((s, l) => s + l.overnight_parking_usd, 0)}</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${aPark}</td>
+                          <td className={`py-1.5 font-mono text-xs ${aPark - estimatedCosts.legs.reduce((s, l) => s + l.overnight_parking_usd, 0) > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                            ${(aPark - estimatedCosts.legs.reduce((s, l) => s + l.overnight_parking_usd, 0)).toFixed(2)}
+                          </td>
+                        </tr>
+                        <tr className="border-b border-border/20">
+                          <td className="py-1.5 pr-2 text-xs">Handling</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${estimatedCosts.legs.reduce((s, l) => s + l.handling_fee_usd, 0)}</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${aHand}</td>
+                          <td className={`py-1.5 font-mono text-xs ${aHand - estimatedCosts.legs.reduce((s, l) => s + l.handling_fee_usd, 0) > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                            ${(aHand - estimatedCosts.legs.reduce((s, l) => s + l.handling_fee_usd, 0)).toFixed(2)}
+                          </td>
+                        </tr>
+                        <tr className="border-b border-border/20">
+                          <td className="py-1.5 pr-2 text-xs">Customs</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${estimatedCosts.legs.reduce((s, l) => s + l.customs_fee_usd, 0)}</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${aCust}</td>
+                          <td className={`py-1.5 font-mono text-xs ${aCust - estimatedCosts.legs.reduce((s, l) => s + l.customs_fee_usd, 0) > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                            ${(aCust - estimatedCosts.legs.reduce((s, l) => s + l.customs_fee_usd, 0)).toFixed(2)}
+                          </td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-border/50 font-medium">
+                          <td className="py-1.5 pr-2 text-xs">Total</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${totalEst}</td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">${actualTotal.toFixed(2)}</td>
+                          <td className={`py-1.5 font-mono text-xs font-bold ${variance > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                            ${variance.toFixed(2)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )
+              })()}
+
+              {costError && (
+                <div className="rounded-md border border-red-500/20 bg-red-500/5 p-3 text-sm text-red-500">
+                  {costError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <Button type="button" variant="outline" onClick={() => setShowCostDialog(false)}>Close</Button>
+                <Button onClick={handleSaveActuals} disabled={costSaving}>
+                  {costSaving ? 'Saving...' : 'Save Actuals'}
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

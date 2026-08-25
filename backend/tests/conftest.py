@@ -88,7 +88,7 @@ async def user(db: AsyncSession, org: Organization) -> User:
     u = User(
         id=str(uuid.uuid4()), organization_id=org.id,
         email="admin@test.aero", password_hash=hash_password("testpass123"),
-        display_name="Test Admin", role=Role.ADMIN, is_active=True,
+        display_name="Test Admin", role=Role.OPS_MANAGER, is_active=True,
     )
     db.add(u)
     await db.flush()

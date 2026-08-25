@@ -36,6 +36,15 @@ class AirportCreate(BaseModel):
     fuel_price_avgas_usd: Optional[float] = None
     fuel_last_updated: Optional[str] = None
 
+    # Cost fields (landing, parking, handling, customs, overflight)
+    landing_fee_usd: Optional[float] = None
+    overnight_parking_usd: Optional[float] = None
+    handling_fee_usd: Optional[float] = None
+    customs_fee_usd: Optional[float] = None
+    overflight_permit_cost_usd: Optional[float] = None
+    payment_type: Optional[str] = "mixed"
+    landing_notes: Optional[str] = None
+
     # Customs & compliance
     has_customs: bool = False
     customs_hours: Optional[str] = None
@@ -79,6 +88,13 @@ class AirportUpdate(BaseModel):
     fuel_price_jet_a_usd: Optional[float] = None
     fuel_price_avgas_usd: Optional[float] = None
     fuel_last_updated: Optional[str] = None
+    landing_fee_usd: Optional[float] = None
+    overnight_parking_usd: Optional[float] = None
+    handling_fee_usd: Optional[float] = None
+    customs_fee_usd: Optional[float] = None
+    overflight_permit_cost_usd: Optional[float] = None
+    payment_type: Optional[str] = None
+    landing_notes: Optional[str] = None
     has_customs: Optional[bool] = None
     customs_hours: Optional[str] = None
     has_landing_permit_required: Optional[bool] = None
@@ -118,6 +134,15 @@ class AirportResponse(BaseModel):
     fuel_price_jet_a_usd: Optional[float] = None
     fuel_price_avgas_usd: Optional[float] = None
     fuel_last_updated: Optional[str] = None
+
+    # Cost fields (landing, parking, handling, customs, overflight)
+    landing_fee_usd: Optional[float] = None
+    overnight_parking_usd: Optional[float] = None
+    handling_fee_usd: Optional[float] = None
+    customs_fee_usd: Optional[float] = None
+    overflight_permit_cost_usd: Optional[float] = None
+    payment_type: Optional[str] = None
+    landing_notes: Optional[str] = None
 
     # Customs & compliance
     has_customs: bool

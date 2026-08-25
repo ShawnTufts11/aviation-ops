@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
-import { Bell, Menu, AlertTriangle, Clock, LogOut } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Bell, Menu, AlertTriangle, LogOut } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,40 +18,39 @@ interface TopBarProps {
   onMenuClick: () => void
 }
 
-function getSessionRemaining(): number {
-  try {
-    const stored = localStorage.getItem('auth_tokens')
-    if (!stored) return 0
-    const tokens = JSON.parse(stored)
-    const payload = JSON.parse(atob(tokens.access_token.split('.')[1]))
-    const exp = payload.exp * 1000
-    return Math.max(0, exp - Date.now())
-  } catch {
-    return 0
-  }
-}
-
-function formatTime(ms: number): string {
-  if (ms <= 0) return 'Expired'
-  const h = Math.floor(ms / 3600000)
-  const m = Math.floor((ms % 3600000) / 60000)
-  const s = Math.floor((ms % 60000) / 1000)
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
 export default function TopBar({ onMenuClick }: TopBarProps) {
   const { user, logout } = useAuthContext()
   const navigate = useNavigate()
   const [unread, setUnread] = useState(0)
   const [notifications, setNotifications] = useState<any[]>([])
   const [showNotifs, setShowNotifs] = useState(false)
-  const [sessionTime, setSessionTime] = useState(getSessionRemaining())
+  const [now, setNow] = useState(new Date())
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const IDLE_TIMEOUT_MS = 30 * 60 * 1000
 
-  // Session countdown tick
+  // Idle timer — reset on mouse/keyboard
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+    idleTimerRef.current = setTimeout(() => {
+      logout()
+      navigate('/login')
+    }, IDLE_TIMEOUT_MS)
+  }, [logout, navigate])
+
   useEffect(() => {
-    const tick = setInterval(() => setSessionTime(getSessionRemaining()), 1000)
+    resetIdleTimer()
+    const events = ['mousedown', 'keydown', 'mousemove', 'touchstart', 'scroll']
+    events.forEach(e => window.addEventListener(e, resetIdleTimer))
+    return () => {
+      events.forEach(e => window.removeEventListener(e, resetIdleTimer))
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+    }
+  }, [resetIdleTimer])
+
+  // Clock tick — updates every second
+  useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(tick)
   }, [])
 
@@ -90,10 +89,25 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
         <Menu className="h-5 w-5" />
       </Button>
 
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Clock className="h-3.5 w-3.5" />
-        <span className={sessionTime < 300000 ? 'text-amber-500' : ''}>
-          {formatTime(sessionTime)}
+      <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground font-mono">
+        <span className="flex items-center gap-1">
+          <span className="text-xs font-bold text-brand-400">Z</span>
+          {now.toLocaleTimeString('en-US', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false })}
+        </span>
+        <span className="text-border">|</span>
+        <span className="flex items-center gap-1">
+          <span className="text-xs font-bold text-amber-400">E</span>
+          {now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false })}
+        </span>
+        <span className="text-border">|</span>
+        <span className="flex items-center gap-1">
+          <span className="text-xs font-bold text-green-400">C</span>
+          {now.toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: '2-digit', minute: '2-digit', hour12: false })}
+        </span>
+        <span className="text-border">|</span>
+        <span className="flex items-center gap-1">
+          <span className="text-xs font-bold text-blue-400">L</span>
+          {now.toLocaleTimeString('en-US', { timeZone: 'America/Nassau', hour: '2-digit', minute: '2-digit', hour12: true })}
         </span>
       </div>
 
@@ -164,8 +178,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
               <p className="text-sm font-medium">{user?.display_name || 'User'}</p>
               <p className="text-xs text-muted-foreground">{user?.email || ''}</p>
               <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                Session: {formatTime(sessionTime)}
+                Z {now.toLocaleTimeString('en-US', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false })}
               </p>
             </div>
           </DropdownMenuLabel>

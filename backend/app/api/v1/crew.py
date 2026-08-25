@@ -79,7 +79,7 @@ async def list_crew(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_crew(
     body: CrewCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> CrewResponse:
     """Add a new crew member."""
@@ -140,7 +140,7 @@ async def get_crew(
 async def update_crew(
     crew_id: str,
     body: CrewUpdate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> CrewResponse:
     """Update crew member details."""
@@ -180,7 +180,7 @@ async def list_qualifications(
 async def add_qualification(
     crew_id: str,
     body: QualificationCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> QualificationResponse:
     """Add a qualification for a crew member."""

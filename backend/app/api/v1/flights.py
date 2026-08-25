@@ -123,7 +123,7 @@ async def todays_flights(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_flight(
     body: FlightCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.OPS_MANAGER])),
     db: AsyncSession = Depends(get_db),
 ) -> FlightResponse:
     """Create a new flight."""
@@ -181,7 +181,7 @@ async def get_flight(
 async def update_flight(
     flight_id: str,
     body: FlightUpdate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.OPS_MANAGER])),
     db: AsyncSession = Depends(get_db),
 ) -> FlightResponse:
     """Update flight (status, times, crew, etc.)."""
@@ -301,7 +301,7 @@ async def update_flight(
 @router.post("/{flight_id}/cancel")
 async def cancel_flight(
     flight_id: str,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> FlightResponse:
     """Cancel a flight."""
@@ -339,7 +339,7 @@ async def list_routes(
 @router.post("/routes", status_code=status.HTTP_201_CREATED)
 async def create_route(
     body: RouteCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> RouteResponse:
     """Add a frequently flown route."""

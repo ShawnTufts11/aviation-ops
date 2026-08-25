@@ -220,3 +220,36 @@ async def full_preflight_check(
         "route": route,
         "weather": weather,
     }
+
+
+from app.models.airport import Airport
+
+@router.get("/weather/briefing")
+async def weather_briefing(
+    current_user: User = Depends(require_org_membership),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return METAR flight categories for the organization's region airports."""
+    result = await db.execute(
+        select(Airport).limit(20)
+    )
+    airports_data = result.scalars().all()
+    
+    from app.services.weather import get_metar, weather_to_dict
+    weather_data = {}
+    for ap in airports_data:
+        if not ap.latitude or not ap.longitude:
+            continue
+        try:
+            metar = await get_metar(ap.icao_code)
+            if metar and not metar.error:
+                wx = weather_to_dict(metar)
+                weather_data[ap.icao_code] = {
+                    "flight_category": wx.get("flight_category", "UNKNOWN"),
+                    "wind": f'{wx.get("wind_direction_deg", "")}@{wx.get("wind_speed_kt", "")}' if wx.get("wind_speed_kt") else None,
+                    "visibility": wx.get("visibility_statute_mi"),
+                    "raw_metar": wx.get("raw_metar", ""),
+                }
+        except Exception:
+            pass
+    return {"airports": weather_data}

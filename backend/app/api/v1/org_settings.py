@@ -36,7 +36,7 @@ class UpdateOrgSettingsBody(BaseModel):
 
 @router.get("/settings")
 async def get_org_settings(
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.OPS_MANAGER])),
     db: AsyncSession = Depends(get_db),
 ) -> OrgSettingsResponse:
     """Get current organization settings."""
@@ -60,7 +60,7 @@ async def get_org_settings(
 @router.patch("/settings")
 async def update_org_settings(
     body: UpdateOrgSettingsBody,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE])),
     db: AsyncSession = Depends(get_db),
 ) -> OrgSettingsResponse:
     """Update organization settings. SUPER_ADMIN only."""

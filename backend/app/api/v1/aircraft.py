@@ -20,6 +20,7 @@ from app.models.user import User
 from app.schemas.aircraft import (
     AircraftCreate,
     AircraftResponse,
+    AircraftSignoffRequest,
     AircraftUpdate,
     ComponentCreate,
     ComponentResponse,
@@ -83,7 +84,7 @@ async def list_aircraft(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_aircraft(
     body: AircraftCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.OPS_MANAGER])),
     db: AsyncSession = Depends(get_db),
 ) -> AircraftResponse:
     """Add a new aircraft to the fleet."""
@@ -165,7 +166,7 @@ async def get_aircraft(
 async def update_aircraft(
     aircraft_id: str,
     body: AircraftUpdate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.OPS_MANAGER])),
     db: AsyncSession = Depends(get_db),
 ) -> AircraftResponse:
     """Update aircraft fields."""
@@ -202,7 +203,7 @@ async def update_aircraft(
 @router.delete("/{aircraft_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_aircraft(
     aircraft_id: str,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE])),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete an aircraft (super_admin only)."""
@@ -218,6 +219,57 @@ async def delete_aircraft(
 
     await db.delete(aircraft)
     await db.commit()
+
+
+# ── Aircraft Signoff ─────────────────────────────────────────────
+
+
+@router.post("/{aircraft_id}/signoff")
+async def signoff_aircraft(
+    aircraft_id: str,
+    body: AircraftSignoffRequest,
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.MAINTENANCE_TECHNICIAN])),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a maintenance signoff against an aircraft.
+
+    Stores the signoff data (mission capability, restrictions, signed_by)
+    in the aircraft's extra_metadata and returns the updated aircraft.
+    """
+    aircraft = await db.get(Aircraft, aircraft_id)
+    if not aircraft or aircraft.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="Aircraft not found")
+
+    now = datetime.now(timezone.utc)
+    signoff_entry = {
+        "mission_capability": body.mission_capability,
+        "restrictions": body.restrictions,
+        "signed_by": body.signed_by,
+        "signed_at": now.isoformat(),
+    }
+
+    # Store in extra_metadata
+    meta = dict(aircraft.extra_metadata or {})
+    signoffs = meta.get("signoffs", [])
+    signoffs.append(signoff_entry)
+    meta["signoffs"] = signoffs
+    meta["last_signoff"] = signoff_entry
+    aircraft.extra_metadata = meta
+    aircraft.updated_at = now
+    db.add(aircraft)
+    await db.commit()
+    await db.refresh(aircraft)
+
+    await log_action(
+        db=db, org_id=current_user.organization_id, user_id=current_user.id,
+        action="aircraft.signoff", entity_type="aircraft", entity_id=aircraft.id,
+        new_values={"mission_capability": body.mission_capability, "signed_by": body.signed_by},
+    )
+
+    return {
+        "aircraft": AircraftResponse.model_validate(aircraft),
+        "signoff": signoff_entry,
+    }
 
 
 # ── Components ───────────────────────────────────────────────────
@@ -246,7 +298,7 @@ async def list_components(
 async def add_component(
     aircraft_id: str,
     body: ComponentCreate,
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER, Role.ADMIN])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS, Role.OPS_MANAGER])),
     db: AsyncSession = Depends(get_db),
 ) -> ComponentResponse:
     """Add a tracked component to an aircraft."""

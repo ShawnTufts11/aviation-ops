@@ -72,6 +72,7 @@ def step1_register() -> str:
         "email": ADMIN_EMAIL,
         "password": ADMIN_PASSWORD,
         "display_name": "Shawn (Ops VP)",
+        "invite_code": "SEED-TEST-2026",
     })
     if "access_token" in result:
         print(f"  ✅ Org: {ORG_NAME}")

@@ -16,6 +16,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, get_optional_user
+from app.core.features import Feature
 from app.core.permissions import require_role
 from app.core.roles import Role
 from app.core.config import settings
@@ -85,8 +86,12 @@ async def register(
 ) -> RegisterResponse:
     """Register with an invite code. Creates a new organization (for client onboarding) or joins existing one.
 
-    Requires an invite_code. The bootstrap code (from env var) bypasses
-    all checks for the very first admin account.
+    Supports:
+    - Bootstrap code (creates root org)
+    - Single-role invite codes
+    - Multi-role invite codes (use ``selected_role`` to pick one)
+    - Feature-scoped invite codes (extra features granted on accept)
+    - Multi-use invite codes (track usage count)
     """
     from app.models.invite import InviteCode
 
@@ -104,7 +109,6 @@ async def register(
         result = await db.execute(
             select(InviteCode).where(
                 InviteCode.code == body.invite_code,
-                InviteCode.is_used == False,
                 InviteCode.expires_at > datetime.now(timezone.utc),
             )
         )
@@ -115,16 +119,45 @@ async def register(
                 detail="Invalid or expired invite code",
             )
 
+        # Check multi-use limits
+        if code.max_uses > 0 and code.use_count >= code.max_uses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This invite code has reached its maximum number of uses",
+            )
+
+        # Resolve role — either fixed role or chosen from allowed_roles
+        resolved_role = code.role
+        if code.allowed_roles:
+            if body.selected_role:
+                if body.selected_role not in code.allowed_roles:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid role. Invite allows: {code.allowed_roles}",
+                    )
+                resolved_role = body.selected_role
+            else:
+                # Default to first allowed role if not specified
+                resolved_role = code.allowed_roles[0]
+
+        # Determine granted features
+        granted_features = list(code.granted_features or [])
+
         # If code has an org_id, user is joining an existing org
         if code.organization_id:
             org_to_join = await db.get(Organization, code.organization_id)
             if not org_to_join or not org_to_join.is_active:
                 raise HTTPException(status_code=400, detail="Organization not found or inactive")
 
-        # Mark code as used
-        code.is_used = True
+        # Mark usage — for multi-use codes, increment use_count
+        code.use_count += 1
+        if code.max_uses > 0 and code.use_count >= code.max_uses:
+            code.is_used = True
         code.used_at = datetime.now(timezone.utc)
         db.add(code)
+    else:
+        resolved_role = "accountable_executive"
+        granted_features = []
 
     # Check email
     existing_user = await db.execute(
@@ -137,7 +170,7 @@ async def register(
         )
 
     if org_to_join:
-        # Joining existing org — create user with the role from invite code
+        # Joining existing org — create user with the resolved role and features
         user = User(
             id=str(uuid.uuid4()),
             organization_id=org_to_join.id,
@@ -145,7 +178,8 @@ async def register(
             password_hash=hash_password(body.password),
             display_name=body.display_name,
             phone=body.phone,
-            role=code.role,
+            role=resolved_role,
+            feature_overrides=granted_features,
             is_active=True,
         )
         db.add(user)
@@ -184,7 +218,8 @@ async def register(
             password_hash=hash_password(body.password),
             display_name=body.display_name,
             phone=body.phone,
-            role="super_admin",
+            role="accountable_executive",
+            feature_overrides=[],
             is_active=True,
             mfa_enabled=False,
         )
@@ -380,14 +415,18 @@ async def invite_user(
 ) -> InviteResponse:
     """Invite a user — pre-creates their profile and generates invite link.
 
-    Only super_admins and ops_managers can invite. The invited user
-    sets their password when they accept. Required fields annotation
-    shows what they still need to provide.
+    Requires ``admin:users`` feature. Supports granted_features for
+    permission overrides upon acceptance.
+
+    The invited user sets their password when they accept.
     """
-    if current_user.role not in ("super_admin", "ops_manager"):
+    # Check feature-level access instead of hardcoded role check
+    from app.core.features import check_feature_access, Feature as Feat
+    if not check_feature_access(current_user.role, Feat("admin:users"),
+                                 {Feature(f) for f in (current_user.feature_overrides or [])}):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only super_admins and ops_managers can invite users",
+            detail="You don't have permission to invite users",
         )
 
     # Check if user already exists
@@ -402,6 +441,25 @@ async def invite_user(
             detail="User with this email already exists",
         )
 
+    # Validate granted_features
+    for feat_str in body.granted_features:
+        try:
+            Feature(feat_str)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown feature: '{feat_str}'",
+            )
+
+    # Role constraint: can only invite <= own privilege
+    inviter_priv = current_user.role.hierarchy().get(current_user.role.value, 0)
+    requested_role_priv = Role(body.role).hierarchy().get(body.role, 0) if body.role else 0
+    if requested_role_priv > inviter_priv:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cannot invite role '{body.role}' — it has higher privilege than your role",
+        )
+
     # Pre-create the user profile (inactive until they accept)
     user = UserModel(
         id=str(uuid.uuid4()),
@@ -412,6 +470,7 @@ async def invite_user(
         role=body.role,
         password_hash="PENDING",  # placeholder, replaced on accept
         is_active=False,
+        feature_overrides=body.granted_features,
     )
     db.add(user)
     await db.flush()
@@ -432,6 +491,7 @@ async def invite_user(
         display_name=body.display_name,
         email=body.email,
         role=body.role,
+        granted_features=body.granted_features,
         required_notes=body.required_notes,
     )
 
@@ -441,7 +501,10 @@ async def accept_invite(
     body: AcceptInviteRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Accept an invite token and create the user account."""
+    """Accept an invite token and create the user account.
+
+    Supports feature overrides pre-set on the user profile by the inviter.
+    """
     payload = verify_invite_token(body.token)
     if payload is None:
         raise HTTPException(
@@ -473,7 +536,7 @@ async def accept_invite(
             detail="Invite not found or already accepted",
         )
 
-    # Activate the user
+    # Activate the user — preserve feature_overrides from the pre-created profile
     user.password_hash = hash_password(body.password)
     user.display_name = body.display_name or user.display_name
     if body.phone:

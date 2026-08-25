@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -39,7 +39,7 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     role: Mapped[Role] = mapped_column(
         Enum(Role, name="user_role", create_constraint=True, values_callable=lambda x: [e.value for e in x]),
-        default=Role.READONLY,
+        default=Role.VIEWER,
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -48,6 +48,16 @@ class User(Base):
     mfa_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_login: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+    # ── Feature-level permissions ─────────────────────────────────────────
+    feature_overrides: Mapped[list[str]] = mapped_column(
+        JSON, default=list, nullable=False,
+        comment="List of feature strings granted beyond the user's role (e.g. [\"pii:access\", \"export:data\"])",
+    )
+    permissions_version: Mapped[int] = mapped_column(
+        Integer, default=1, nullable=False,
+        comment="Increment to force frontend cache-bust of permissions",
     )
 
     created_at: Mapped[datetime] = mapped_column(

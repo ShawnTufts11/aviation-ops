@@ -2,6 +2,7 @@
 Role-Based Access Control (RBAC) dependencies for FastAPI.
 
 Provides ``require_role`` dependency, ``require_org_membership``,
+``require_feature``, ``require_pii_clearance``,
 and ``get_current_user`` for extracting the authenticated user from JWT.
 """
 
@@ -92,7 +93,7 @@ def require_role(required_roles: list[Role]) -> Any:
     Usage::
 
         @router.get("/admin-only")
-        async def admin_endpoint(user: User = Depends(require_role([Role.ADMIN, Role.SUPER_ADMIN]))):
+        async def admin_endpoint(user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS]))):
             ...
     """
 
@@ -105,6 +106,42 @@ def require_role(required_roles: list[Role]) -> Any:
         return current_user
 
     return _role_checker
+
+
+def require_feature(feature: str) -> Any:
+    """Factory that returns a dependency checking the user's feature-level access.
+
+    This is the granular counterpart of ``require_role`` — instead of checking
+    which role the user has, it checks whether their role (plus any feature
+    overrides on their profile) grants access to a specific feature.
+
+    Usage::
+
+        @router.get("/aircraft")
+        async def list_aircraft(user: User = Depends(require_feature("aircraft:read"))):
+            ...
+
+    The feature string must match a :class:`app.core.features.Feature` enum value.
+    """
+    from app.core.features import Feature, check_feature_access
+
+    # Validate feature at definition time
+    feat = Feature(feature)
+
+    async def _feature_checker(current_user: User = Depends(get_current_user)) -> User:
+        overrides: set[Feature] | None = None
+        if current_user.feature_overrides:
+            overrides = {Feature(f) for f in current_user.feature_overrides if isinstance(f, str)}
+            overrides |= {f for f in current_user.feature_overrides if isinstance(f, Feature)}
+
+        if not check_feature_access(current_user.role, feat, overrides):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied — requires feature '{feat.value}'",
+            )
+        return current_user
+
+    return _feature_checker
 
 
 async def require_org_membership(
@@ -122,29 +159,38 @@ async def require_org_membership(
 # ── PII Access Control ─────────────────────────────────────────
 
 
-PII_CLEARANCE_ROLES = [Role.SUPER_ADMIN, Role.OPS_MANAGER]
+PII_CLEARANCE_ROLES = [Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS]
 
 
 def require_pii_clearance() -> Any:
     """Restrict access to Personally Identifiable Information (PII).
 
-    Requires the user to have pii_clearance=True on their profile.
-    SUPER_ADMIN role is always granted clearance regardless of flag.
+    Requires the user to have pii_clearance=True on their profile,
+    OR the ``pii:access`` feature override, OR be an Accountable Executive.
     """
 
     async def _checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role == Role.SUPER_ADMIN:
+        if current_user.role == Role.ACCOUNTABLE_EXECUTIVE:
             return current_user
-        if not current_user.pii_clearance:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="PII access requires pii_clearance on your user profile — contact your super admin",
-            )
-        return current_user
+        if current_user.pii_clearance:
+            return current_user
+        # Check feature-level override
+        if current_user.feature_overrides and "pii:access" in current_user.feature_overrides:
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="PII access requires pii_clearance on your user profile — contact your super admin",
+        )
 
     return _checker
 
 
 def has_pii_clearance(user: User) -> bool:
     """Check if a user has PII clearance without raising an error."""
-    return user.role == Role.SUPER_ADMIN or user.pii_clearance
+    if user.role == Role.ACCOUNTABLE_EXECUTIVE:
+        return True
+    if user.pii_clearance:
+        return True
+    if user.feature_overrides and "pii:access" in user.feature_overrides:
+        return True
+    return False

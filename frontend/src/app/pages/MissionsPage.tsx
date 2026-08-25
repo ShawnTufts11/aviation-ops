@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, MapPin, Plane } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import api from '@/lib/api'
@@ -13,6 +12,7 @@ interface Mission {
   aircraft_id: string | null
   home_base: string
   mission_date: string | null
+  mission_number: string | null
   legs: any[]
   created_at: string
 }
@@ -60,8 +60,8 @@ export default function MissionsPage() {
 
         <TabsContent value={tab} className="mt-4">
           {loading ? (
-            <div className="space-y-3">{[1,2,3].map((i) => (
-              <Card key={i} className="animate-pulse"><CardContent className="p-6"><div className="h-12 rounded bg-muted" /></CardContent></Card>
+            <div className="space-y-2">{[1,2,3].map((i) => (
+              <div key={i} className="h-12 animate-pulse rounded-md bg-muted" />
             ))}</div>
           ) : missions.length === 0 ? (
             <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-border py-16">
@@ -72,36 +72,52 @@ export default function MissionsPage() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-3">
-              {missions.map((m) => {
-                const route = m.legs?.length > 0
-                  ? `${m.legs[0].departure_airport} → ${m.legs[m.legs.length - 1].arrival_airport}`
-                  : 'No legs'
-                const legCount = m.legs?.length || 0
-                return (
-                  <Card
-                    key={m.id}
-                    className="cursor-pointer border-border/50 transition-colors hover:border-brand-500/50"
-                    onClick={() => navigate(`/missions/${m.id}`)}
-                  >
-                    <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <Plane className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{route}</span>
+            <div className="overflow-x-auto rounded-lg border border-border/50">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-border/50 text-muted-foreground">
+                    <th className="py-3 pl-4 pr-3 font-medium">Mission</th>
+                    <th className="py-3 pr-3 font-medium">Route</th>
+                    <th className="py-3 pr-3 font-medium text-right">Legs</th>
+                    <th className="py-3 pr-3 font-medium">Base</th>
+                    <th className="py-3 pr-3 font-medium">Date</th>
+                    <th className="py-3 pr-4 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {missions.map((m) => {
+                    const route = m.legs?.length > 0
+                      ? `${m.legs.map((l: any) => l.departure_airport).join(' → ')} → ${m.legs[m.legs.length - 1].arrival_airport}`
+                      : 'No legs'
+                    const legCount = m.legs?.length || 0
+                    return (
+                      <tr
+                        key={m.id}
+                        className="cursor-pointer border-b border-border/10 transition-colors hover:bg-muted/30"
+                        onClick={() => navigate(`/missions/${m.id}`)}
+                      >
+                        <td className="py-3 pl-4 pr-3">
+                          <div className="flex items-center gap-2">
+                            <Plane className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="font-medium">{m.mission_number || m.id.slice(0, 8)}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 pr-3 text-muted-foreground max-w-[300px] truncate" title={route}>
+                          {route}
+                        </td>
+                        <td className="py-3 pr-3 text-right">{legCount}</td>
+                        <td className="py-3 pr-3">{m.home_base}</td>
+                        <td className="py-3 pr-3">{m.mission_date || '—'}</td>
+                        <td className="py-3 pr-4">
                           <Badge variant="outline" className={STATUS_COLORS[m.status] || ''}>
                             {m.status}
                           </Badge>
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {legCount} leg{legCount !== 1 ? 's' : ''} · {m.home_base}
-                          {m.mission_date && ` · ${m.mission_date}`}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </TabsContent>

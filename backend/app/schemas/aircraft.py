@@ -107,6 +107,12 @@ class ComponentCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class AircraftSignoffRequest(BaseModel):
+    mission_capability: str = Field(default="full", pattern=r"^(full|partial|not_capable)$")
+    restrictions: str = ""
+    signed_by: str = Field(..., min_length=1, max_length=255)
+
+
 class ComponentResponse(BaseModel):
     id: str
     aircraft_id: str

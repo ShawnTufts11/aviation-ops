@@ -38,7 +38,7 @@ def _read_csv(file: UploadFile) -> tuple[list[dict[str, str]], list[str]]:
 @router.post("/passengers")
 async def import_passengers(
     file: UploadFile = File(...),
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Bulk import passengers from CSV.
@@ -131,7 +131,7 @@ async def import_passengers(
 @router.post("/crew")
 async def import_crew(
     file: UploadFile = File(...),
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Bulk import crew from CSV.
@@ -201,7 +201,7 @@ async def import_crew(
 @router.post("/aircraft")
 async def import_aircraft(
     file: UploadFile = File(...),
-    current_user: User = Depends(require_role([Role.SUPER_ADMIN, Role.OPS_MANAGER])),
+    current_user: User = Depends(require_role([Role.ACCOUNTABLE_EXECUTIVE, Role.DIRECTOR_OF_OPERATIONS])),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Bulk import aircraft from CSV.

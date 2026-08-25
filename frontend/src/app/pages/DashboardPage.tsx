@@ -13,6 +13,7 @@ import {
 import { Link } from 'react-router-dom'
 import api from '@/lib/api'
 import LiveTrackingMap from '@/features/tracking/LiveTrackingMap'
+import { AcronymSpan } from '@/components/ui/acronym'
 
 interface Aircraft {
   id: string; tail_number: string; make: string; model: string; status: string; base: string
@@ -153,9 +154,9 @@ export default function DashboardPage() {
               <Users className="h-8 w-8 text-purple-400" />
               <div>
                 <p className="text-2xl font-bold">{crewSummary?.total_active || 0}</p>
-                <p className="text-sm text-muted-foreground">Crew Active</p>
+                <p className="text-sm text-muted-foreground"><AcronymSpan text="Crew Active" /></p>
                 {(crewSummary?.expiring_medical || 0) > 0 && (
-                  <p className="text-xs text-amber-500">{crewSummary?.expiring_medical} medicals expiring</p>
+                  <p className="text-xs text-amber-500">{crewSummary?.expiring_medical} <AcronymSpan text="medical" />s expiring</p>
                 )}
               </div>
             </CardContent>
